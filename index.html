@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Definite Dash — English Article Runner (Prototype)</title>
+  <link rel="stylesheet" href="css/game.css">
+</head>
+<body>
+  <div id="app" class="app">
+
+    <!-- ============================================================
+         Error screen (data load / validation failures)
+      ============================================================ -->
+    <section id="screen-error" class="screen screen-error hidden" aria-live="polite">
+      <h1 class="error-title">Something went wrong</h1>
+      <p class="error-message" id="error-message">Unknown error.</p>
+      <button id="btn-error-reload" class="btn btn-primary" type="button">Reload page</button>
+    </section>
+
+    <!-- ============================================================
+         Start screen: title, play button, level selector, dev tools
+      ============================================================ -->
+    <section id="screen-start" class="screen screen-start hidden">
+      <header class="start-header">
+        <h1 class="game-title">Definite Dash</h1>
+        <p class="game-tagline">English Article Runner <span class="proto-badge">prototype</span></p>
+      </header>
+
+      <div class="start-actions">
+        <button id="btn-play" class="btn btn-primary btn-large" type="button">Play</button>
+        <div class="mode-toggle" role="radiogroup" aria-label="Game mode">
+          <button id="btn-mode-learn" class="btn btn-toggle is-active" type="button" aria-pressed="true">Learn</button>
+          <button id="btn-mode-arcade" class="btn btn-toggle" type="button" aria-pressed="false">Arcade</button>
+        </div>
+      </div>
+
+      <nav class="level-select" aria-label="Level selection">
+        <h2 class="level-select-title">Levels</h2>
+        <ul id="level-list" class="level-list"></ul>
+      </nav>
+
+      <p id="start-note" class="start-note hidden" role="status"></p>
+
+      <div class="dev-tools" id="dev-tools">
+        <button id="btn-reset-progress" class="btn btn-dev" type="button">Reset progress (dev)</button>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Game screen: HUD, sentence, three-lane road, gates, player
+      ============================================================ -->
+    <section id="screen-game" class="screen screen-game hidden">
+      <header class="hud">
+        <div class="hud-left">
+          <span id="hud-level" class="hud-item hud-level">Level</span>
+          <span id="hud-question" class="hud-item">– / –</span>
+        </div>
+        <div class="hud-right">
+          <span id="hud-score" class="hud-item">0 pts</span>
+          <span id="hud-streak" class="hud-item">Streak 0</span>
+          <span id="hud-lives" class="hud-item hud-lives hidden" aria-label="Lives"></span>
+          <button id="btn-pause" class="btn btn-small" type="button" aria-label="Pause game">Pause</button>
+        </div>
+      </header>
+
+      <div class="sentence-wrap">
+        <p id="sentence" class="sentence" aria-live="polite"></p>
+      </div>
+
+      <div id="runner" class="runner">
+        <div class="road" aria-hidden="true">
+          <div class="road-surface"></div>
+          <div class="lane-divider lane-divider-left"></div>
+          <div class="lane-divider lane-divider-right"></div>
+        </div>
+        <div id="gates" class="gates">
+          <div class="gate gate-lane-0" data-lane="0" role="button" tabindex="-1">
+            <span class="gate-key" aria-hidden="true">1</span>
+            <span class="gate-label"></span>
+          </div>
+          <div class="gate gate-lane-1" data-lane="1" role="button" tabindex="-1">
+            <span class="gate-key" aria-hidden="true">2</span>
+            <span class="gate-label"></span>
+          </div>
+          <div class="gate gate-lane-2" data-lane="2" role="button" tabindex="-1">
+            <span class="gate-key" aria-hidden="true">3</span>
+            <span class="gate-label"></span>
+          </div>
+        </div>
+        <div id="player" class="player" aria-label="Runner"></div>
+      </div>
+
+      <p class="controls-hint">◀ ▶ / A D to switch lanes · gates answer on arrival</p>
+
+      <!-- Feedback panel (correct / wrong) -->
+      <div id="feedback" class="feedback hidden" role="status">
+        <h2 id="feedback-title" class="feedback-title"></h2>
+        <p id="feedback-sentence" class="feedback-sentence"></p>
+        <p id="feedback-detail" class="feedback-detail"></p>
+        <button id="btn-continue" class="btn btn-primary" type="button">Continue</button>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Pause overlay
+      ============================================================ -->
+    <section id="overlay-pause" class="overlay hidden" role="dialog" aria-label="Game paused">
+      <div class="overlay-card">
+        <h2>Paused</h2>
+        <p class="overlay-note">The question waits for you — nothing is lost.</p>
+        <div class="overlay-actions">
+          <button id="btn-resume" class="btn btn-primary" type="button">Resume</button>
+          <button id="btn-quit" class="btn" type="button">Quit to menu</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Level complete screen
+      ============================================================ -->
+    <section id="screen-complete" class="screen screen-complete hidden">
+      <div class="result-card">
+        <h2 id="complete-title" class="result-title">Level complete</h2>
+        <p id="complete-stars" class="result-stars" aria-label="Stars"></p>
+        <ul class="result-stats">
+          <li><span>Correct</span><b id="complete-correct">0</b></li>
+          <li><span>Wrong</span><b id="complete-wrong">0</b></li>
+          <li><span>Accuracy</span><b id="complete-accuracy">0%</b></li>
+          <li><span>Score</span><b id="complete-score">0</b></li>
+          <li><span>Best streak</span><b id="complete-streak">0</b></li>
+        </ul>
+        <div id="complete-weak" class="weak-rules hidden">
+          <h3>Rules to review</h3>
+          <ul id="complete-weak-list"></ul>
+        </div>
+        <div class="overlay-actions">
+          <button id="btn-next-level" class="btn btn-primary" type="button">Next level</button>
+          <button id="btn-play-again" class="btn" type="button">Play again</button>
+          <button id="btn-complete-menu" class="btn" type="button">Menu</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Game over screen (Arcade, out of lives)
+      ============================================================ -->
+    <section id="screen-gameover" class="screen screen-gameover hidden">
+      <div class="result-card">
+        <h2 class="result-title">Game over</h2>
+        <p class="overlay-note">You ran out of lives in Arcade Mode.</p>
+        <ul class="result-stats">
+          <li><span>Answered</span><b id="gameover-answered">0</b></li>
+          <li><span>Correct</span><b id="gameover-correct">0</b></li>
+          <li><span>Score</span><b id="gameover-score">0</b></li>
+          <li><span>Best streak</span><b id="gameover-streak">0</b></li>
+        </ul>
+        <div class="overlay-actions">
+          <button id="btn-retry" class="btn btn-primary" type="button">Try again</button>
+          <button id="btn-gameover-menu" class="btn" type="button">Menu</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Development debug bar (visible only when js sets .debug on body)
+      ============================================================ -->
+    <div id="dev-bar" class="dev-bar hidden" aria-hidden="true">
+      <span id="dev-state">READY</span>
+      <span id="dev-lane">lane 1</span>
+      <span id="dev-progress">gate 0%</span>
+      <span id="dev-question">q –</span>
+      <button id="btn-dev-submit" class="btn btn-dev" type="button">Submit lane (dev)</button>
+    </div>
+
+  </div>
+
+  <script type="module" src="js/game.js"></script>
+</body>
+</html>

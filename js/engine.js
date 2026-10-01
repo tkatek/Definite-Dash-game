@@ -375,6 +375,7 @@ function collectDataProblems(data) {
       if (questionIds.has(q.id)) err(`Duplicate question id "${q.id}".`);
       questionIds.add(q.id);
       const tag = `Question "${q.id}"`;
+      let answerOk = false;
 
       if (typeof q.sentence !== 'string') {
         err(`${tag} sentence must be a string.`);
@@ -434,7 +435,9 @@ function collectDataProblems(data) {
   }
   const questionsHaveErrors = errors.length > errorCountBeforeQuestions;
 
-  if (Array.isArray(levels) && Array.isArray(questions) && ruleIds.size > 0) {
+  // Only audit level pools when the questions themselves are clean, so a
+  // single broken question does not cascade into pool-shortage problems.
+  if (!questionsHaveErrors && Array.isArray(levels) && Array.isArray(questions) && ruleIds.size > 0) {
     for (const level of levels) {
       if (!Number.isInteger(level.id) || !Array.isArray(level.rules)) continue;
       const wildcard = level.rules.includes(WILDCARD_RULE);
