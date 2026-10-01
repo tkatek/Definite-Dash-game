@@ -2,8 +2,10 @@
  * Definite Dash — stylesheet (css/game.css)
  * --------------------------------------------------------------------------
  * Layout, hierarchy and state visibility. The answer gates use the approved
- * layered artwork system (see "Answer gates" below); the road/environment
- * art pass comes in a later phase.
+ * layered artwork system (see "Answer gates" below). The road and scenery
+ * are the approved environment artwork (see "Scene / environment" on
+ * .runner): one painting per device class, horizon-locked to the gate
+ * system so gates emerge exactly from the painted road horizon.
  * ========================================================================== */
 
 /* ---------- reset & base ---------- */
@@ -24,7 +26,8 @@ body {
 body {
   font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
   color: #1f2933;
-  background: #0f172a;
+  /* sky tone so the letterbox gutters beyond .app's max-width blend in */
+  background: linear-gradient(#bfe3f7, #d9effb);
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
@@ -33,14 +36,16 @@ body {
 .app {
   position: relative;
   width: 100%;
-  max-width: 900px;
+  /* full-bleed game world on desktop; capped so the scenery art is never
+   * upscaled excessively on very large monitors (gutters show the sky tone) */
+  max-width: 1920px;
   margin: 0 auto;
   height: 100dvh;
   min-height: 480px;
   background: linear-gradient(#bfe3f7 0%, #d9effb 46%, #eaf6e9 46%, #eaf6e9 100%);
   overflow: hidden;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
-    env(safe-area-inset-left);
+  /* safe-area insets are handled per screen/overlay so the gameplay world
+   * itself can run edge-to-edge under notches */
 }
 
 .hidden {
@@ -122,7 +127,8 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 18px;
+  padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right))
+    max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
   overflow-y: auto;
 }
 
@@ -275,16 +281,51 @@ body {
   padding-bottom: 6px;
 }
 
-/* ---------- game screen ---------- */
+/* ---------- game screen ----------
+ * The gameplay world (.runner) fills the whole screen; HUD and question
+ * card are overlays above the scene's sky area, in this order:
+ * scene < gates < player < HUD/question < feedback < pause overlay. */
 
 .screen-game {
-  padding: 10px 12px 8px;
+  padding: 0;
   justify-content: flex-start;
-  gap: 6px;
   overflow: hidden;
   touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* HUD + question strip pinned to the top, floating over the sky.
+ * Pointer events pass through to the world below except on the pause
+ * button, which opts back in. */
+.game-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: max(10px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 0
+    max(12px, env(safe-area-inset-left));
+  pointer-events: none;
+}
+
+.game-top .hud {
+  width: 100%;
+  max-width: 900px;
+  pointer-events: none;
+}
+
+.game-top .hud .btn {
+  pointer-events: auto;
+}
+
+.game-top .sentence-wrap {
+  width: 100%;
+  max-width: 720px;
 }
 
 .hud {
@@ -352,59 +393,159 @@ body {
   text-align: center;
 }
 
-/* runner field */
+/* ==========================================================================
+ * Scene / environment — the approved countryside artwork
+ * --------------------------------------------------------------------------
+ * One painting per device class (desktop / tablet / mobile), picked by the
+ * SAME breakpoints that retune lane anchors and gate geometry (680px /
+ * 1200px). The road, river, windmill, village etc. live ONLY in this art:
+ * lane logic, collision and gate timing stay in the engine + js/game.js.
+ *
+ * Alignment contract (measured from the artwork, see js/game.js profiles):
+ * background-position "50% H%" pins the painting's horizon row (H% of the
+ * image) to exactly H% of the runner, for ANY cover crop — so gates that
+ * spawn at --scene-horizon-y always emerge from the painted road horizon,
+ * and the road center stays at 50% on every screen size.
+ *
+ * All scene geometry is defined ONCE here as custom properties and only
+ * READ by js/game.js; there is no second gameplay implementation.
+ * ======================================================================== */
 
 .runner {
-  position: relative;
-  flex: 1 1 auto;
-  width: 100%;
-  min-height: 260px;
+  position: absolute;
+  inset: 0; /* the gameplay world fills the entire game screen */
   overflow: hidden;
   /* Size container: gate components cap their width by runner HEIGHT too
    * (landscape phones), not just by width. */
   container-type: size;
+
+  /* ---- scene geometry: desktop default (wide landscape painting) ---- */
+  --scene-layout: desktop; /* keys the lane-x profile table in js/game.js */
+  --scene-image: url("../assets/backgrounds/road-desktop.webp");
+  --scene-bg-pos-y: 42.6%; /* painting's horizon row = gate spawn ground line */
+  --scene-horizon-y: 42.6%; /* same value, read by js/game.js */
+  --scene-collision-y: 86%; /* gate ground line at the collision moment */
+  --player-bottom: 3%;
 }
 
-.road {
+.scene {
   position: absolute;
   inset: 0;
-  pointer-events: none;
+  z-index: 0;
+  pointer-events: none; /* the world below stays tappable */
+  background-color: #7ec3f0; /* flat sky fallback if the artwork cannot load */
+  background-image: var(--scene-image),
+    /* graceful CSS "mini scene" under the artwork: sky → horizon → meadow */
+      linear-gradient(
+        to bottom,
+        #57b8fb 0%,
+        #a8ddf8 calc(var(--scene-bg-pos-y) - 3%),
+        #9bd06d var(--scene-bg-pos-y),
+        #6fae52 100%
+      );
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: 50% var(--scene-bg-pos-y);
+  /* micro-parallax (set by js/game.js on lane changes): translateX shifts
+   * the scenery a couple of px opposite the fox; scale(1.006) is static
+   * slack so the shift never reveals the layer's edges */
+  transform: translateX(var(--scene-parallax-x, 0px)) scale(1.006);
+  transition: transform 260ms ease-out;
+  will-change: transform;
 }
 
-.road-surface {
+/* ==========================================================================
+ * World-motion road layer (children positioned per frame by js/game.js)
+ * --------------------------------------------------------------------------
+ * .road-layer   no z-index/transform/opacity here on purpose: its children
+ *               carry individual z-indexes so they interleave with the
+ *               gates by depth inside #runner's stacking context.
+ * .lane-mask    static road-tone trapezoids that subtly repaint the baked
+ *               divider stripes (clip-path + gradient set by js/game.js),
+ *               so the moving dashes replace them without double markings.
+ * .road-dash    pooled perspective dash riding a painted divider rail.
+ * .road-stone   pooled pebble on a lane rail (three size variants).
+ * .road-tuft    pooled grass/flower cluster on the painted road edge.
+ * .dust-puff    pooled dust behind the fox, fading as it flows past.
+ * ========================================================================== */
+
+.road-layer {
   position: absolute;
-  left: 50%;
-  top: 8%;
-  bottom: 0;
-  width: 100%;
-  transform: translateX(-50%);
-  background: linear-gradient(#8fa3b8 0%, #5d7186 100%);
-  clip-path: polygon(40% 0, 60% 0, 118% 100%, -18% 100%);
+  inset: 0;
+  pointer-events: none; /* taps belong to the road/gates, never to props */
 }
 
-.lane-divider {
+.road-layer > * {
   position: absolute;
-  top: 8%;
-  bottom: 0;
-  left: 50%;
+  left: 0;
+  top: 0;
+  will-change: transform;
+}
+
+.lane-mask {
   width: 100%;
-  background: rgba(255, 255, 255, 0.75);
-  transform: translateX(-50%);
+  height: 100%;
+  z-index: 0;
+  opacity: 0.96;
+  filter: blur(1.4px);
+  /* track the scene's micro-parallax so mask and painting never part */
+  transform: translateX(var(--scene-parallax-x, 0px));
+  will-change: auto; /* static shape — no per-frame transform animation */
 }
 
-.lane-divider-left {
-  clip-path: polygon(49.85% 0, 50.15% 0, 16.9% 100%, 15.9% 100%);
+.road-dash {
+  border-radius: 42%;
+  background: linear-gradient(to bottom, #fdf3dd, #f2d9a9);
+  box-shadow: 0 0 2px rgba(255, 246, 220, 0.35);
 }
 
-.lane-divider-right {
-  clip-path: polygon(49.85% 0, 50.15% 0, 84.1% 100%, 83.1% 100%);
+.road-stone {
+  border-radius: 46% 54% 50% 48%;
+  filter: drop-shadow(0 1px 1.5px rgba(96, 68, 34, 0.28));
+}
+
+.stone-a {
+  background: radial-gradient(45% 40% at 34% 28%, #b7a48c, #97836c 68%, #857460);
+}
+
+.stone-b {
+  background: radial-gradient(45% 40% at 34% 28%, #c3b096, #a08b72 68%, #8d7b65);
+}
+
+.stone-c {
+  background: radial-gradient(45% 40% at 34% 28%, #a99f8f, #8c8272 68%, #7c7365);
+}
+
+.road-tuft {
+  border-radius: 50% 50% 45% 45%;
+  background:
+    radial-gradient(60% 55% at 30% 75%, rgba(107, 158, 64, 0.95), rgba(107, 158, 64, 0) 70%),
+    radial-gradient(55% 60% at 62% 70%, rgba(129, 178, 79, 0.95), rgba(129, 178, 79, 0) 70%),
+    radial-gradient(65% 50% at 46% 55%, rgba(92, 146, 58, 0.9), rgba(92, 146, 58, 0) 72%);
+}
+
+.tuft-flower::after {
+  content: "";
+  position: absolute;
+  left: 58%;
+  top: 22%;
+  width: 34%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffe08a, #f2b53c 75%);
+  box-shadow: 0 0 2px rgba(255, 224, 138, 0.6);
+}
+
+.dust-puff {
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(216, 190, 142, 0.55), rgba(216, 190, 142, 0) 70%);
 }
 
 /* ==========================================================================
  * Answer gates — layered component over the approved artwork
  * --------------------------------------------------------------------------
  * .answer-gate          positioned & scaled per frame by js/game.js from the
- *                        engine's gateProgress (ground point = bottom center)
+ *                        shared world projection (ground point = bottom center)
  *   __art               gate artwork (assets/gates/gate-<color>.webp), the
  *                        ONLY visual; transparent WebP with alpha
  *   __icon              dynamic category icon inside the round top plate
@@ -422,10 +563,11 @@ body {
 .gates {
   position: absolute;
   inset: 0;
-  /* gate sizing system: % of runner width, capped by runner height (landscape).
-   * Sized so neighboring signboards never cover each other at the collision
-   * moment, when lanes reach their full spread (posts may still touch). */
-  --gate-w: 36%;
+  /* gate sizing system: share of runner width, capped by runner height
+   * (landscape). Sized so neighboring signboards never cover each other at
+   * the collision moment, when lanes reach their full spread (posts may
+   * still touch). Desktop default; tablet/phone retune it below. */
+  --gate-w: 28cqw;
   --gate-h-cap: 52cqh;
 }
 
@@ -433,13 +575,14 @@ body {
   position: absolute;
   width: min(var(--gate-w), var(--gate-h-cap));
   aspect-ratio: 960 / 930; /* real artwork proportions — never stretch */
-  left: 50%;
-  top: 20%;
+  left: 0;
+  top: 0;
   transform: translate(-50%, -100%);
   transform-origin: center bottom; /* gates stand on the road, scale upward */
+  opacity: 0; /* js/game.js owns opacity per frame; hidden until first render */
   cursor: pointer;
   touch-action: manipulation;
-  will-change: left, top, transform;
+  will-change: transform, opacity;
   /* the label sizes itself against this container's width */
   container-type: inline-size;
 }
@@ -598,21 +741,38 @@ body.debug .answer-gate .gate-key {
  */
 
 .runner {
-  --lane-x-0: 31%;
+  /* Lane anchors sit ON the painted lanes of the environment artwork,
+   * measured at the fox's ground depth from the approved images (see the
+   * scene block above). The fox and, via readSceneGeo(), the arriving
+     gates share these anchors, so road markings, fox and gates always
+     agree on where each lane is. */
+  --lane-x-0: 19%;
   --lane-x-1: 50%;
-  --lane-x-2: 69%;
+  --lane-x-2: 81%;
 }
 
 .player {
   position: absolute;
-  top: 84%;
+  bottom: var(--player-bottom, 3%); /* ground-anchored: a bigger fox can never clip the bottom */
   left: var(--lane-x-1);
-  width: clamp(58px, 10.5vw, 100px);
+  width: clamp(128px, 19vw, 192px);
   aspect-ratio: 1 / 1;
+  --player-bob: 5px;
   transform: translateX(-50%);
-  transition: left 190ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition:
+    left 200ms cubic-bezier(0.25, 0.8, 0.25, 1),
+    transform 200ms cubic-bezier(0.25, 0.8, 0.25, 1);
   pointer-events: none;
   z-index: 5; /* above road and gates, below overlays and feedback UI */
+}
+
+/* subtle directional lean while switching lanes (added and removed by game.js) */
+.player.lean-right {
+  transform: translateX(-50%) rotate(3deg);
+}
+
+.player.lean-left {
+  transform: translateX(-50%) rotate(-3deg);
 }
 
 /* subtle vertical bob; the sprite frames carry most of the running motion */
@@ -640,12 +800,12 @@ body.debug .answer-gate .gate-key {
 .player .player-shadow {
   position: absolute;
   left: 50%;
-  bottom: 1%;
-  width: 74%;
-  height: 11%;
+  bottom: 0%;
+  width: 82%;
+  height: 14%;
   transform: translateX(-50%);
   border-radius: 50%;
-  background: radial-gradient(50% 50% at 50% 50%, rgba(20, 30, 45, 0.4), rgba(20, 30, 45, 0) 72%);
+  background: radial-gradient(50% 50% at 50% 50%, rgba(20, 30, 45, 0.48), rgba(20, 30, 45, 0) 72%);
 }
 
 .player.is-running .player-shadow {
@@ -739,18 +899,33 @@ body.debug .answer-gate .gate-key {
   filter: drop-shadow(0 0 6px rgba(214, 69, 52, 0.85));
 }
 
+/* controls hint floats at the very bottom of the scene, over the road
+ * (below the fox's ground line) and never intercepts taps */
 .controls-hint {
+  position: absolute;
+  bottom: calc(6px + env(safe-area-inset-bottom));
+  left: 0;
+  right: 0;
   margin: 0;
+  z-index: 6;
   font-size: 0.75rem;
-  color: #66788c;
+  color: #4d6373;
   text-align: center;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
+  pointer-events: none;
 }
 
-/* feedback panel */
+/* feedback panel — centered overlay above the road, below the fox */
 
 .feedback {
-  width: 100%;
-  max-width: 560px;
+  position: absolute;
+  left: 50%;
+  top: 54%;
+  transform: translate(-50%, -50%);
+  z-index: 8;
+  width: min(92%, 560px);
+  max-height: 68vh;
+  overflow-y: auto;
   background: #ffffff;
   border-radius: 14px;
   border-top: 6px solid #888;
@@ -764,7 +939,7 @@ body.debug .answer-gate .gate-key {
 
 /* Keep the debug bar from covering the Continue button while debugging. */
 body.debug .feedback {
-  margin-bottom: 46px;
+  top: 47%;
 }
 
 .feedback.feedback-correct {
@@ -944,10 +1119,16 @@ body.debug .feedback {
 }
 
 /* ==========================================================================
- * Responsive adjustments (basic prototype-level, full pass comes later)
+ * Responsive adjustments
+ * --------------------------------------------------------------------------
+ * Scene breakpoints — 680px / 1200px — select the device-class painting AND
+ * retune lane anchors, gate sizing and horizon together, so the artwork and
+ * the gameplay geometry can never drift apart. Values for lanes/horizon are
+ * measured from the approved paintings (painted lane centers at the fox's
+ * ground depth; painted road horizon row).
  * ========================================================================== */
 
-/* tablets and up */
+/* tablets and up: text-only tweaks */
 @media (min-width: 768px) {
   .sentence {
     font-size: 1.5rem;
@@ -956,40 +1137,57 @@ body.debug .feedback {
   .level-list {
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   }
-
-  /* tablet: gates take a smaller share of the (wider) road */
-  .gates {
-    --gate-w: 32%;
-  }
 }
 
 @media (min-width: 1024px) {
   .controls-hint {
     font-size: 0.8rem;
   }
+}
 
-  /* desktop: capped share of a wide runner; the cqh cap in .gates prevents
-   * absurd sizes on very large/short viewports */
+/* ---- tablet / iPad: dedicated 4:3 painting, both orientations ---- */
+@media (max-width: 1200px) {
+  .runner {
+    --scene-layout: tablet;
+    --scene-image: url("../assets/backgrounds/road-tablet.webp");
+    --scene-bg-pos-y: 46.8%;
+    --scene-horizon-y: 46.8%;
+    /* painted lanes at the fox's ground depth (portrait & landscape
+     * average — the lane is ~31% wide, so ±1% is invisible) */
+    --lane-x-0: 16.5%;
+    --lane-x-1: 50%;
+    --lane-x-2: 83.5%;
+  }
+
+  /* tablet: gates take a smaller share of the (wider) road */
   .gates {
-    --gate-w: 28%;
+    --gate-w: 32cqw;
   }
 }
 
-/* small phones */
-@media (max-width: 430px) {
+/* ---- phones: dedicated portrait painting ---- */
+@media (max-width: 680px) {
   .runner {
-    --lane-x-0: 25%;
+    --scene-layout: mobile;
+    --scene-image: url("../assets/backgrounds/road-mobile.webp");
+    --scene-bg-pos-y: 44.4%;
+    --scene-horizon-y: 44.4%;
+    /* painted lanes at the fox's ground depth — strong perspective, so the
+     * outer lanes run close to the screen edges on purpose */
+    --lane-x-0: 12.5%;
     --lane-x-1: 50%;
-    --lane-x-2: 75%;
+    --lane-x-2: 87.5%;
   }
 
   .player {
-    width: clamp(52px, 15vw, 64px);
-    --player-bob: 2.5px;
+    width: clamp(80px, 23vw, 104px);
+    --player-bob: 3px;
   }
 
-  .screen {
-    padding: 10px;
+  /* phones: gates claim a larger share of the narrow road so labels stay
+   * readable; neighboring posts may come close but boards never overlap */
+  .gates {
+    --gate-w: 36cqw;
   }
 
   .hud {
@@ -1012,14 +1210,15 @@ body.debug .feedback {
     font-size: 1rem;
   }
 
-  /* phones: gates claim a larger share of the narrow road so labels stay
-   * readable; neighboring posts may come close but boards never overlap */
-  .gates {
-    --gate-w: 36%;
-  }
-
   .controls-hint {
     font-size: 0.68rem;
+  }
+}
+
+/* small phones */
+@media (max-width: 430px) {
+  .screen {
+    padding: 10px;
   }
 
   .result-card {
@@ -1051,16 +1250,33 @@ body.debug .feedback {
   }
 
   .gates {
-    --gate-w: 38%;
+    --gate-w: 38cqw;
   }
 }
 
 /* reduce motion politely even in the prototype; lane movement still works.
- * Depth is gameplay: gates still travel with gateProgress — only decorative
- * pulsing/glow animations are disabled. */
+ * Depth is gameplay: gates still travel with gateProgress and the road still
+ * flows (slowed by js via WORLD_MOTION.reducedFactor) — only decorative
+ * pulsing/glow/dust animations are disabled. */
 @media (prefers-reduced-motion: reduce) {
   .player {
     transition: none;
+  }
+
+  /* scenery parallax is decorative — freeze it (js also skips setting it) */
+  .scene,
+  .lane-mask {
+    transition: none;
+  }
+
+  .player.lean-left,
+  .player.lean-right {
+    transform: translateX(-50%);
+  }
+
+  /* dust is pure decoration — js stops spawning it too */
+  .dust-puff {
+    display: none;
   }
 
   /* the JS side also switches to a slow two-frame loop in this mode */

@@ -49,32 +49,22 @@
     </section>
 
     <!-- ============================================================
-         Game screen: HUD, sentence, three-lane road, gates, player
+         Game screen: full-bleed environment world (approved scenery
+         art) with gates and the fox on the road; HUD and question
+         float above the sky area as overlay layers.
       ============================================================ -->
     <section id="screen-game" class="screen screen-game hidden">
-      <header class="hud">
-        <div class="hud-left">
-          <span id="hud-level" class="hud-item hud-level">Level</span>
-          <span id="hud-question" class="hud-item">– / –</span>
-        </div>
-        <div class="hud-right">
-          <span id="hud-score" class="hud-item">0 pts</span>
-          <span id="hud-streak" class="hud-item">Streak 0</span>
-          <span id="hud-lives" class="hud-item hud-lives hidden" aria-label="Lives"></span>
-          <button id="btn-pause" class="btn btn-small" type="button" aria-label="Pause game">Pause</button>
-        </div>
-      </header>
-
-      <div class="sentence-wrap">
-        <p id="sentence" class="sentence" aria-live="polite"></p>
-      </div>
-
+      <!-- The gameplay world. Environment art is purely visual: lanes,
+           gates and collisions are owned by the engine + js/game.js;
+           pointer input anywhere in this element selects a lane. -->
       <div id="runner" class="runner">
-        <div class="road" aria-hidden="true">
-          <div class="road-surface"></div>
-          <div class="lane-divider lane-divider-left"></div>
-          <div class="lane-divider lane-divider-right"></div>
-        </div>
+        <div class="scene" aria-hidden="true"></div>
+        <!-- Perspective road-motion layer: pooled lane dashes, stones and
+             roadside tufts recycled near the horizon (driven by js/game.js).
+             Children keep individual z-indexes so they interleave with the
+             gates by depth; the layer itself never creates a stacking
+             context and never takes pointer events. -->
+        <div id="road-layer" class="road-layer" aria-hidden="true"></div>
         <div id="gates" class="gates">
           <div class="answer-gate" data-lane="0" role="button" tabindex="-1" aria-label="Answer gate 1">
             <span class="gate-key" aria-hidden="true">1</span>
@@ -100,6 +90,26 @@
           <div class="player-bob">
             <img id="player-img" class="player-img" alt="" draggable="false">
           </div>
+        </div>
+      </div>
+
+      <!-- HUD + question overlay: reads over the sky area of the scene -->
+      <div class="game-top">
+        <header class="hud">
+          <div class="hud-left">
+            <span id="hud-level" class="hud-item hud-level">Level</span>
+            <span id="hud-question" class="hud-item">– / –</span>
+          </div>
+          <div class="hud-right">
+            <span id="hud-score" class="hud-item">0 pts</span>
+            <span id="hud-streak" class="hud-item">Streak 0</span>
+            <span id="hud-lives" class="hud-item hud-lives hidden" aria-label="Lives"></span>
+            <button id="btn-pause" class="btn btn-small" type="button" aria-label="Pause game">Pause</button>
+          </div>
+        </header>
+
+        <div class="sentence-wrap">
+          <p id="sentence" class="sentence" aria-live="polite"></p>
         </div>
       </div>
 
