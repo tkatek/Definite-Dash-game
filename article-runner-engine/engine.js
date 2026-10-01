@@ -474,7 +474,11 @@ export class GameEngine {
     this.now = typeof now === "function" ? now : () => Date.now();
 
     this.progress = progress ?? createProgress();
+    // ruleStats is cumulative (prior progress + this run) and drives adaptive
+    // selection and weak-rule reporting; sessionRuleStats is this run only and
+    // is what saveProgress merges, so carried-over stats are never double-counted.
     this.ruleStats = this._cloneRuleStats();
+    this.sessionRuleStats = {};
 
     this.totalQuestions =
       questionCount ?? this.level.questionCount ?? this.settings.defaultQuestionCount;
@@ -511,7 +515,7 @@ export class GameEngine {
     const eligible = this._eligibleQuestions();
     if (eligible.length === 0) return null;
     // Learn mode never repeats a question inside one run; arcade only avoids
-    // the recent-question window so an endless session can recycle the pool.
+    // the recent-question window so a long session can recycle the pool.
     const exclude =
       this.mode === "learn" ? this.usedQuestionIds : this.recentQuestionIds.slice();
     let question = pickWeightedQuestion(eligible, this.settings, this.ruleStats, this.rng, exclude);
@@ -575,9 +579,11 @@ export class GameEngine {
       }
     }
 
-    const stats = (this.ruleStats[question.rule] ??= createRuleStats());
-    stats.attempts += 1;
-    if (correct) stats.correct += 1;
+    for (const target of [this.ruleStats, this.sessionRuleStats]) {
+      const stats = (target[question.rule] ??= createRuleStats());
+      stats.attempts += 1;
+      if (correct) stats.correct += 1;
+    }
 
     this.usedQuestionIds.push(question.id);
     this.recentQuestionIds.push(question.id);
@@ -685,7 +691,7 @@ export class GameEngine {
   }
 
   saveProgress(progress = this.progress) {
-    for (const [ruleId, stats] of Object.entries(this.ruleStats)) {
+    for (const [ruleId, stats] of Object.entries(this.sessionRuleStats)) {
       const target = (progress.ruleStats[ruleId] ??= createRuleStats());
       target.attempts += stats.attempts;
       target.correct += stats.correct;
