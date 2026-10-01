@@ -510,6 +510,11 @@ body.debug .gate .gate-key {
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.25);
 }
 
+/* Keep the debug bar from covering the Continue button while debugging. */
+body.debug .feedback {
+  margin-bottom: 46px;
+}
+
 .feedback.feedback-correct {
   border-top-color: #2f9e4f;
 }

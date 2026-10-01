@@ -263,8 +263,8 @@ function bindEngineEvents() {
   });
 }
 
-function handleStateChanged({ state }) {
-  switch (state) {
+function handleStateChanged({ to }) {
+  switch (to) {
     case GAME_STATES.READY:
       showScreen('start');
       break;
@@ -435,12 +435,22 @@ function renderFeedback(result) {
   // Completed sentence with the filled article emphasized (when there is one).
   dom.feedbackSentence.replaceChildren();
   if (result.correctArticle) {
-    const [before, after = ''] = result.completedSentence.split(result.correctArticle);
-    dom.feedbackSentence.append(document.createTextNode(before));
-    const filled = document.createElement('span');
-    filled.className = 'filled';
-    filled.textContent = result.correctArticle;
-    dom.feedbackSentence.append(filled, document.createTextNode(after));
+    // Highlight only the first occurrence — an article like "a" appears many times.
+    const at = result.completedSentence.indexOf(result.correctArticle);
+    if (at === -1) {
+      dom.feedbackSentence.textContent = result.completedSentence;
+    } else {
+      dom.feedbackSentence.append(
+        document.createTextNode(result.completedSentence.slice(0, at))
+      );
+      const filled = document.createElement('span');
+      filled.className = 'filled';
+      filled.textContent = result.correctArticle;
+      dom.feedbackSentence.append(
+        filled,
+        document.createTextNode(result.completedSentence.slice(at + result.correctArticle.length))
+      );
+    }
   } else {
     dom.feedbackSentence.textContent = result.completedSentence;
   }
