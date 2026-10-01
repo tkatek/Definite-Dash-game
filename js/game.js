@@ -808,13 +808,13 @@ function bindUiEvents() {
 
   // -- responsive geometry: lane spread + label metrics follow CSS breakpoints --
   readLaneX();
-  refreshGateLabelBase();
+  gateLabelBaseStale = true; // re-measured on the next visible frame
   let resizeTimer = null;
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
       readLaneX();
-      refreshGateLabelBase();
+      gateLabelBaseStale = true;
     }, 120);
   });
 }
