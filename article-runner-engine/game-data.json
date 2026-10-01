@@ -1,0 +1,1147 @@
+{
+  "meta": {
+    "schemaVersion": 1,
+    "gameId": "article-runner",
+    "title": "Article Runner",
+    "description": "Production-oriented grammar data for a lane-based English article learning game.",
+    "defaultMode": "learn"
+  },
+  "settings": {
+    "answerCategories": [
+      "none",
+      "definite",
+      "indefinite"
+    ],
+    "recentQuestionWindow": 10,
+    "defaultQuestionCount": 8,
+    "minimumQuestionsToPass": 5,
+    "feedbackDelayMs": 850,
+    "wrongAnswerFeedbackDelayMs": 1800,
+    "startingLivesArcade": 3,
+    "maxAdaptiveWeight": 3.0,
+    "masteryThreshold": 0.85,
+    "minimumAttemptsForMastery": 5
+  },
+  "scoring": {
+    "baseCorrect": 100,
+    "fastBonusMax": 50,
+    "fastBonusWindowMs": 4500,
+    "perfectWindowMs": 1500,
+    "streakStep": 0.1,
+    "maxStreakMultiplier": 2.0,
+    "perfectQuestionBonus": 25,
+    "arcadeLifePenalty": 1
+  },
+  "starRules": {
+    "threeStarsAccuracy": 1.0,
+    "twoStarsAccuracy": 0.75,
+    "oneStarAccuracy": 0.625
+  },
+  "ruleCatalog": [
+    {
+      "id": "indefinite-first-mention",
+      "label": "First Mention: a / an",
+      "category": "indefinite",
+      "cefr": "A1",
+      "summary": "Use 'a' or 'an' to introduce one nonspecific singular countable noun for the first time."
+    },
+    {
+      "id": "indefinite-jobs",
+      "label": "Jobs and Roles: a / an",
+      "category": "indefinite",
+      "cefr": "A1",
+      "summary": "Use 'a' or 'an' with singular professions and roles, for example 'She is a teacher.'"
+    },
+    {
+      "id": "definite-specific",
+      "label": "Specific Nouns: the",
+      "category": "definite",
+      "cefr": "A1",
+      "summary": "Use 'the' when the noun is identifiable, because both speakers know it or a phrase points to exactly which one it is."
+    },
+    {
+      "id": "definite-unique",
+      "label": "Unique Things: the",
+      "category": "definite",
+      "cefr": "A1",
+      "summary": "Use 'the' with things there is only one of, such as the sun, the moon and the internet."
+    },
+    {
+      "id": "definite-second-mention",
+      "label": "Second Mention: the",
+      "category": "definite",
+      "cefr": "A1",
+      "summary": "Use 'the' when a noun that was already introduced with 'a' or 'an' is mentioned again."
+    },
+    {
+      "id": "zero-meals",
+      "label": "Meals: no article",
+      "category": "none",
+      "cefr": "A1",
+      "summary": "Use no article with meal names like breakfast, lunch and dinner in general expressions about daily routines."
+    },
+    {
+      "id": "zero-sports",
+      "label": "Sports: no article",
+      "category": "none",
+      "cefr": "A1",
+      "summary": "Use no article with the names of sports, for example 'We play football.'"
+    },
+    {
+      "id": "zero-languages",
+      "label": "Languages: no article",
+      "category": "none",
+      "cefr": "A1",
+      "summary": "Use no article with the names of languages, for example 'They speak Arabic.'"
+    },
+    {
+      "id": "definite-superlative",
+      "label": "Superlatives: the",
+      "category": "definite",
+      "cefr": "A2",
+      "summary": "Use 'the' before superlative expressions such as the best, the tallest and the most interesting."
+    },
+    {
+      "id": "definite-ordinal",
+      "label": "Ordinal Numbers: the",
+      "category": "definite",
+      "cefr": "A2",
+      "summary": "Use 'the' before ordinal numbers such as first, second and third when they mark a definite position."
+    },
+    {
+      "id": "definite-geography-water",
+      "label": "Rivers, Seas and Oceans: the",
+      "category": "definite",
+      "cefr": "A2",
+      "summary": "Use 'the' with the names of rivers, seas, oceans and channels, for example the Nile and the Atlantic Ocean."
+    },
+    {
+      "id": "zero-general-plural",
+      "label": "General Plurals: no article",
+      "category": "none",
+      "cefr": "A2",
+      "summary": "Use no article when plural countable nouns stand for a whole category in general, for example 'Trains are often late.'"
+    },
+    {
+      "id": "zero-general-uncountable",
+      "label": "General Uncountable: no article",
+      "category": "none",
+      "cefr": "A2",
+      "summary": "Use no article when an uncountable noun such as water, coffee or advice is used in a general sense."
+    },
+    {
+      "id": "definite-instruments",
+      "label": "Musical Instruments: the",
+      "category": "definite",
+      "cefr": "A2",
+      "summary": "Use 'the' in standard expressions involving playing musical instruments, such as 'She plays the piano.'"
+    },
+    {
+      "id": "zero-institutions-purpose",
+      "label": "Institutions for Purpose: no article",
+      "category": "none",
+      "cefr": "A2",
+      "summary": "Use no article in expressions such as 'at school' or 'go to school' when referring to the institution's normal purpose."
+    }
+  ],
+  "levels": [
+    {
+      "id": 1,
+      "title": "A or An",
+      "cefr": "A1",
+      "questionCount": 8,
+      "speed": 0.075,
+      "rules": [
+        "indefinite-first-mention",
+        "indefinite-jobs"
+      ],
+      "requiredAccuracy": 0.625,
+      "unlockAfter": null
+    },
+    {
+      "id": 2,
+      "title": "Meet The",
+      "cefr": "A1",
+      "questionCount": 8,
+      "speed": 0.078,
+      "rules": [
+        "definite-specific",
+        "definite-unique"
+      ],
+      "requiredAccuracy": 0.625,
+      "unlockAfter": 1
+    },
+    {
+      "id": 3,
+      "title": "First and Second Mention",
+      "cefr": "A1",
+      "questionCount": 8,
+      "speed": 0.08,
+      "rules": [
+        "indefinite-first-mention",
+        "definite-second-mention"
+      ],
+      "requiredAccuracy": 0.625,
+      "unlockAfter": 2
+    },
+    {
+      "id": 4,
+      "title": "No Article Basics",
+      "cefr": "A1",
+      "questionCount": 8,
+      "speed": 0.08,
+      "rules": [
+        "zero-meals",
+        "zero-sports",
+        "zero-languages"
+      ],
+      "requiredAccuracy": 0.625,
+      "unlockAfter": 3
+    },
+    {
+      "id": 5,
+      "title": "Mixed Basics",
+      "cefr": "A1",
+      "questionCount": 10,
+      "speed": 0.084,
+      "rules": [
+        "indefinite-first-mention",
+        "indefinite-jobs",
+        "definite-specific",
+        "definite-unique",
+        "definite-second-mention",
+        "zero-meals",
+        "zero-sports",
+        "zero-languages"
+      ],
+      "requiredAccuracy": 0.625,
+      "unlockAfter": 4
+    },
+    {
+      "id": 6,
+      "title": "Best, First and Only",
+      "cefr": "A2",
+      "questionCount": 10,
+      "speed": 0.086,
+      "rules": [
+        "definite-superlative",
+        "definite-ordinal",
+        "definite-unique"
+      ],
+      "requiredAccuracy": 0.625,
+      "unlockAfter": 5
+    },
+    {
+      "id": 7,
+      "title": "Places and Water",
+      "cefr": "A2",
+      "questionCount": 10,
+      "speed": 0.088,
+      "rules": [
+        "definite-geography-water",
+        "definite-specific"
+      ],
+      "requiredAccuracy": 0.625,
+      "unlockAfter": 6
+    },
+    {
+      "id": 8,
+      "title": "General Things",
+      "cefr": "A2",
+      "questionCount": 10,
+      "speed": 0.09,
+      "rules": [
+        "zero-general-plural",
+        "zero-general-uncountable",
+        "definite-specific"
+      ],
+      "requiredAccuracy": 0.625,
+      "unlockAfter": 7
+    },
+    {
+      "id": 9,
+      "title": "Music and Institutions",
+      "cefr": "A2/B1",
+      "questionCount": 10,
+      "speed": 0.092,
+      "rules": [
+        "definite-instruments",
+        "zero-institutions-purpose"
+      ],
+      "requiredAccuracy": 0.625,
+      "unlockAfter": 8
+    },
+    {
+      "id": 10,
+      "title": "Article Mastery",
+      "cefr": "B1",
+      "questionCount": 12,
+      "speed": 0.095,
+      "rules": [
+        "*"
+      ],
+      "requiredAccuracy": 0.7,
+      "unlockAfter": 9
+    }
+  ],
+  "questions": [
+    {
+      "id": "q001",
+      "levelMin": 1,
+      "cefr": "A1",
+      "rule": "indefinite-first-mention",
+      "sentence": "I saw ___ dog near the park yesterday.",
+      "answer": {
+        "category": "indefinite",
+        "article": "a"
+      },
+      "explanation": "Use 'a' because the dog is one nonspecific dog mentioned for the first time, and 'dog' starts with a consonant sound.",
+      "completedSentence": "I saw a dog near the park yesterday."
+    },
+    {
+      "id": "q002",
+      "levelMin": 1,
+      "cefr": "A1",
+      "rule": "indefinite-first-mention",
+      "sentence": "She ate ___ apple before going to school.",
+      "answer": {
+        "category": "indefinite",
+        "article": "an"
+      },
+      "explanation": "Use 'an' because 'apple' begins with a vowel sound, and this is the first time we hear about the apple.",
+      "completedSentence": "She ate an apple before going to school."
+    },
+    {
+      "id": "q003",
+      "levelMin": 1,
+      "cefr": "A1",
+      "rule": "indefinite-first-mention",
+      "sentence": "Take ___ umbrella with you because it is raining.",
+      "answer": {
+        "category": "indefinite",
+        "article": "an"
+      },
+      "explanation": "Use 'an' because 'umbrella' begins with a vowel sound; it means any umbrella, not one specific umbrella.",
+      "completedSentence": "Take an umbrella with you because it is raining."
+    },
+    {
+      "id": "q004",
+      "levelMin": 1,
+      "cefr": "A1",
+      "rule": "indefinite-first-mention",
+      "sentence": "My parents bought ___ house last year.",
+      "answer": {
+        "category": "indefinite",
+        "article": "a"
+      },
+      "explanation": "Use 'a' because the house is being introduced for the first time and is not yet identified for the listener.",
+      "completedSentence": "My parents bought a house last year."
+    },
+    {
+      "id": "q005",
+      "levelMin": 1,
+      "cefr": "A1",
+      "rule": "indefinite-jobs",
+      "sentence": "My sister is ___ teacher at our local school.",
+      "answer": {
+        "category": "indefinite",
+        "article": "a"
+      },
+      "explanation": "Singular professions always take an indefinite article, and 'teacher' starts with a consonant sound, so we say 'a teacher'.",
+      "completedSentence": "My sister is a teacher at our local school."
+    },
+    {
+      "id": "q006",
+      "levelMin": 1,
+      "cefr": "A1",
+      "rule": "indefinite-jobs",
+      "sentence": "He wants to be ___ engineer when he grows up.",
+      "answer": {
+        "category": "indefinite",
+        "article": "an"
+      },
+      "explanation": "Jobs take 'a' or 'an', and 'engineer' begins with a vowel sound even though it is spelled with 'e', so 'an' is correct.",
+      "completedSentence": "He wants to be an engineer when he grows up."
+    },
+    {
+      "id": "q007",
+      "levelMin": 1,
+      "cefr": "A1",
+      "rule": "indefinite-jobs",
+      "sentence": "Sara works as ___ nurse in London.",
+      "answer": {
+        "category": "indefinite",
+        "article": "a"
+      },
+      "explanation": "Use 'a' because 'nurse' is a singular job, and the consonant sound 'n' at the start requires 'a', not 'an'.",
+      "completedSentence": "Sara works as a nurse in London."
+    },
+    {
+      "id": "q008",
+      "levelMin": 1,
+      "cefr": "A1",
+      "rule": "indefinite-jobs",
+      "sentence": "Her cousin is ___ actor in Hollywood.",
+      "answer": {
+        "category": "indefinite",
+        "article": "an"
+      },
+      "explanation": "Use 'an' because 'actor' is a singular profession that begins with a vowel sound.",
+      "completedSentence": "Her cousin is an actor in Hollywood."
+    },
+    {
+      "id": "q009",
+      "levelMin": 2,
+      "cefr": "A1",
+      "rule": "definite-specific",
+      "sentence": "Can you pass me ___ salt, please?",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because the salt is right there on the table, so both speakers know exactly which salt is meant.",
+      "completedSentence": "Can you pass me the salt, please?"
+    },
+    {
+      "id": "q010",
+      "levelMin": 2,
+      "cefr": "A1",
+      "rule": "definite-specific",
+      "sentence": "Nobody knows ___ answer to this question.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because the phrase 'to this question' identifies exactly which answer we mean, so the noun is specific.",
+      "completedSentence": "Nobody knows the answer to this question."
+    },
+    {
+      "id": "q011",
+      "levelMin": 2,
+      "cefr": "A1",
+      "rule": "definite-specific",
+      "sentence": "I liked ___ blue shirt in the shop window.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because the phrase 'in the shop window' points to one particular shirt that both people can see.",
+      "completedSentence": "I liked the blue shirt in the shop window."
+    },
+    {
+      "id": "q012",
+      "levelMin": 2,
+      "cefr": "A1",
+      "rule": "definite-specific",
+      "sentence": "My keys are in ___ drawer next to the fridge.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because the phrase 'next to the fridge' tells us exactly which drawer we mean.",
+      "completedSentence": "My keys are in the drawer next to the fridge."
+    },
+    {
+      "id": "q013",
+      "levelMin": 2,
+      "cefr": "A1",
+      "rule": "definite-specific",
+      "sentence": "We had lunch at ___ new restaurant near the station.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because the phrase 'near the station' identifies one particular restaurant that both speakers can locate.",
+      "completedSentence": "We had lunch at the new restaurant near the station."
+    },
+    {
+      "id": "q014",
+      "levelMin": 2,
+      "cefr": "A1",
+      "rule": "definite-unique",
+      "sentence": "The children watched ___ sun go down behind the hills.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because there is only one sun, and nouns for unique things always take 'the'.",
+      "completedSentence": "The children watched the sun go down behind the hills."
+    },
+    {
+      "id": "q015",
+      "levelMin": 2,
+      "cefr": "A1",
+      "rule": "definite-unique",
+      "sentence": "At night, we can often see ___ moon from our garden.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because we normally see only one moon, so this unique noun always takes 'the'.",
+      "completedSentence": "At night, we can often see the moon from our garden."
+    },
+    {
+      "id": "q016",
+      "levelMin": 2,
+      "cefr": "A1",
+      "rule": "definite-unique",
+      "sentence": "There is not a single cloud in ___ sky today.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because 'sky' is a unique noun: there is only one sky above us.",
+      "completedSentence": "There is not a single cloud in the sky today."
+    },
+    {
+      "id": "q017",
+      "levelMin": 2,
+      "cefr": "A1",
+      "rule": "definite-unique",
+      "sentence": "Millions of people use ___ internet every day.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because the internet is one single, unique thing that everyone knows.",
+      "completedSentence": "Millions of people use the internet every day."
+    },
+    {
+      "id": "q018",
+      "levelMin": 3,
+      "cefr": "A1",
+      "rule": "definite-second-mention",
+      "sentence": "I bought a book yesterday, and ___ book cost ten euros.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because the book was already introduced as 'a book'; on second mention the noun is known information.",
+      "completedSentence": "I bought a book yesterday, and the book cost ten euros."
+    },
+    {
+      "id": "q019",
+      "levelMin": 3,
+      "cefr": "A1",
+      "rule": "definite-second-mention",
+      "sentence": "We adopted a cat in May, and ___ cat now sleeps on my bed.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because 'a cat' introduced the animal first; when we mention it again, it is known to the listener.",
+      "completedSentence": "We adopted a cat in May, and the cat now sleeps on my bed."
+    },
+    {
+      "id": "q020",
+      "levelMin": 3,
+      "cefr": "A1",
+      "rule": "definite-second-mention",
+      "sentence": "She made a cake this morning, and ___ cake smells wonderful.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because the cake is already known: 'a cake' was mentioned earlier in the same sentence.",
+      "completedSentence": "She made a cake this morning, and the cake smells wonderful."
+    },
+    {
+      "id": "q021",
+      "levelMin": 3,
+      "cefr": "A1",
+      "rule": "definite-second-mention",
+      "sentence": "Leo got a bicycle for his birthday, and ___ bicycle is red.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because the bicycle was introduced with 'a bicycle'; a repeated, now-known noun takes 'the'.",
+      "completedSentence": "Leo got a bicycle for his birthday, and the bicycle is red."
+    },
+    {
+      "id": "q022",
+      "levelMin": 3,
+      "cefr": "A1",
+      "rule": "definite-second-mention",
+      "sentence": "They watched a film last night, but ___ film was quite boring.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because after 'a film' is mentioned, the film becomes known information for the listener.",
+      "completedSentence": "They watched a film last night, but the film was quite boring."
+    },
+    {
+      "id": "q023",
+      "levelMin": 3,
+      "cefr": "A1",
+      "rule": "indefinite-first-mention",
+      "sentence": "There is ___ old bridge at the end of this road.",
+      "answer": {
+        "category": "indefinite",
+        "article": "an"
+      },
+      "explanation": "Use 'an' because the bridge is mentioned for the first time and is not specific, and 'old' begins with a vowel sound.",
+      "completedSentence": "There is an old bridge at the end of this road."
+    },
+    {
+      "id": "q024",
+      "levelMin": 3,
+      "cefr": "A1",
+      "rule": "indefinite-first-mention",
+      "sentence": "I have ___ idea for our school project.",
+      "answer": {
+        "category": "indefinite",
+        "article": "an"
+      },
+      "explanation": "Use 'an' because the idea is new to the listener and not specific yet, and 'idea' starts with a vowel sound.",
+      "completedSentence": "I have an idea for our school project."
+    },
+    {
+      "id": "q025",
+      "levelMin": 3,
+      "cefr": "A1",
+      "rule": "indefinite-first-mention",
+      "sentence": "During our trip, we stayed in ___ small hotel near the beach.",
+      "answer": {
+        "category": "indefinite",
+        "article": "a"
+      },
+      "explanation": "Use 'a' because the hotel is mentioned for the first time, and 'small' starts with a consonant sound.",
+      "completedSentence": "During our trip, we stayed in a small hotel near the beach."
+    },
+    {
+      "id": "q026",
+      "levelMin": 4,
+      "cefr": "A1",
+      "rule": "zero-meals",
+      "sentence": "The children have ___ breakfast at seven o'clock every day.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because 'breakfast' is a meal name in a general expression about a daily routine, not one special breakfast.",
+      "completedSentence": "The children have breakfast at seven o'clock every day."
+    },
+    {
+      "id": "q027",
+      "levelMin": 4,
+      "cefr": "A1",
+      "rule": "zero-meals",
+      "sentence": "After the lesson, we usually have ___ lunch together.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because 'lunch' refers to the midday meal in general, which is the normal daily routine.",
+      "completedSentence": "After the lesson, we usually have lunch together."
+    },
+    {
+      "id": "q028",
+      "levelMin": 4,
+      "cefr": "A1",
+      "rule": "zero-meals",
+      "sentence": "Let's meet for ___ dinner on Friday evening.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because 'dinner' is the normal evening meal in a general arrangement, not a specific special meal.",
+      "completedSentence": "Let's meet for dinner on Friday evening."
+    },
+    {
+      "id": "q029",
+      "levelMin": 4,
+      "cefr": "A1",
+      "rule": "zero-sports",
+      "sentence": "We play ___ football in the park after class.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because 'football' is the name of a sport, and sport names take no article in general statements.",
+      "completedSentence": "We play football in the park after class."
+    },
+    {
+      "id": "q030",
+      "levelMin": 4,
+      "cefr": "A1",
+      "rule": "zero-sports",
+      "sentence": "My friends watch ___ basketball on TV every weekend.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because 'basketball' is a sport name used in a general sense about a habit.",
+      "completedSentence": "My friends watch basketball on TV every weekend."
+    },
+    {
+      "id": "q031",
+      "levelMin": 4,
+      "cefr": "A1",
+      "rule": "zero-sports",
+      "sentence": "Her brother is really good at ___ tennis.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because 'tennis' is the name of a sport, and general sport names after 'good at' take no article.",
+      "completedSentence": "Her brother is really good at tennis."
+    },
+    {
+      "id": "q032",
+      "levelMin": 4,
+      "cefr": "A1",
+      "rule": "zero-languages",
+      "sentence": "Many people in Egypt speak ___ Arabic at home.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because 'Arabic' is the name of a language, and language names take no article.",
+      "completedSentence": "Many people in Egypt speak Arabic at home."
+    },
+    {
+      "id": "q033",
+      "levelMin": 4,
+      "cefr": "A1",
+      "rule": "zero-languages",
+      "sentence": "Is ___ Japanese difficult to learn?",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because 'Japanese' is a language name, and languages in general statements take no article.",
+      "completedSentence": "Is Japanese difficult to learn?"
+    },
+    {
+      "id": "q034",
+      "levelMin": 4,
+      "cefr": "A1",
+      "rule": "zero-languages",
+      "sentence": "We study ___ English three times a week.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because 'English' is a school subject and a language name, which take no article in general statements.",
+      "completedSentence": "We study English three times a week."
+    },
+    {
+      "id": "q035",
+      "levelMin": 8,
+      "cefr": "A2",
+      "rule": "zero-general-plural",
+      "sentence": "In my country, ___ trains are often late in winter.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because 'trains' is a plural noun describing the whole category of trains in general, not specific trains.",
+      "completedSentence": "In my country, trains are often late in winter."
+    },
+    {
+      "id": "q036",
+      "levelMin": 8,
+      "cefr": "A2",
+      "rule": "zero-general-plural",
+      "sentence": "My cousin repairs ___ computers in a small shop.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because 'computers' means computers in general as part of his job, not particular computers.",
+      "completedSentence": "My cousin repairs computers in a small shop."
+    },
+    {
+      "id": "q037",
+      "levelMin": 8,
+      "cefr": "A2",
+      "rule": "zero-general-plural",
+      "sentence": "Hana prefers ___ cats to dogs because they are quieter.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because the speaker is comparing cats and dogs as whole categories, and general plural nouns take no article.",
+      "completedSentence": "Hana prefers cats to dogs because they are quieter."
+    },
+    {
+      "id": "q038",
+      "levelMin": 8,
+      "cefr": "A2",
+      "rule": "zero-general-plural",
+      "sentence": "Modern cities need ___ parks and green spaces.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because 'parks' refers to parks in general as a category, not to specific parks.",
+      "completedSentence": "Modern cities need parks and green spaces."
+    },
+    {
+      "id": "q039",
+      "levelMin": 8,
+      "cefr": "A2",
+      "rule": "zero-general-uncountable",
+      "sentence": "Doctors say we should drink ___ water every morning.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because 'water' is an uncountable noun used in a general sense, meaning water as a substance.",
+      "completedSentence": "Doctors say we should drink water every morning."
+    },
+    {
+      "id": "q040",
+      "levelMin": 8,
+      "cefr": "A2",
+      "rule": "zero-general-uncountable",
+      "sentence": "I never drink ___ coffee after dinner.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because coffee in general is an uncountable noun, and no particular coffee is meant here.",
+      "completedSentence": "I never drink coffee after dinner."
+    },
+    {
+      "id": "q041",
+      "levelMin": 8,
+      "cefr": "A2",
+      "rule": "zero-general-uncountable",
+      "sentence": "She relaxes after work by listening to ___ music.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because music in general is uncountable; no particular song or album is meant.",
+      "completedSentence": "She relaxes after work by listening to music."
+    },
+    {
+      "id": "q042",
+      "levelMin": 8,
+      "cefr": "A2",
+      "rule": "zero-general-uncountable",
+      "sentence": "My uncle always gives ___ good advice.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because 'advice' is an uncountable noun used in a general sense, not one specific piece of advice.",
+      "completedSentence": "My uncle always gives good advice."
+    },
+    {
+      "id": "q043",
+      "levelMin": 6,
+      "cefr": "A2",
+      "rule": "definite-superlative",
+      "sentence": "This is ___ best pizza in town.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because 'best' is a superlative, and superlatives always point to one unmatched thing.",
+      "completedSentence": "This is the best pizza in town."
+    },
+    {
+      "id": "q044",
+      "levelMin": 6,
+      "cefr": "A2",
+      "rule": "definite-superlative",
+      "sentence": "Omar is ___ tallest student in our class.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because 'tallest' is a superlative describing one unique student, and superlatives require 'the'.",
+      "completedSentence": "Omar is the tallest student in our class."
+    },
+    {
+      "id": "q045",
+      "levelMin": 6,
+      "cefr": "A2",
+      "rule": "definite-superlative",
+      "sentence": "That was ___ most interesting film of the year.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because 'most interesting' is a superlative form, and superlative expressions always take 'the'.",
+      "completedSentence": "That was the most interesting film of the year."
+    },
+    {
+      "id": "q046",
+      "levelMin": 6,
+      "cefr": "A2",
+      "rule": "definite-superlative",
+      "sentence": "Saturday is ___ busiest day in our shop.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because 'busiest' is a superlative, and only one day can be the busiest.",
+      "completedSentence": "Saturday is the busiest day in our shop."
+    },
+    {
+      "id": "q047",
+      "levelMin": 6,
+      "cefr": "A2",
+      "rule": "definite-ordinal",
+      "sentence": "We live on ___ third floor of an old building.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because 'third' is an ordinal number marking one definite position in a series, the floors of the building.",
+      "completedSentence": "We live on the third floor of an old building."
+    },
+    {
+      "id": "q048",
+      "levelMin": 6,
+      "cefr": "A2",
+      "rule": "definite-ordinal",
+      "sentence": "January is ___ first month of the year.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because 'first' is an ordinal number marking a definite position in the series of months.",
+      "completedSentence": "January is the first month of the year."
+    },
+    {
+      "id": "q049",
+      "levelMin": 6,
+      "cefr": "A2",
+      "rule": "definite-ordinal",
+      "sentence": "He was ___ first person to arrive at the party.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because the ordinal 'first' identifies one particular person in a definite order of arrival.",
+      "completedSentence": "He was the first person to arrive at the party."
+    },
+    {
+      "id": "q050",
+      "levelMin": 6,
+      "cefr": "A2",
+      "rule": "definite-ordinal",
+      "sentence": "We sat in ___ second row at the cinema.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because 'second' is an ordinal number identifying the definite row where we sat.",
+      "completedSentence": "We sat in the second row at the cinema."
+    },
+    {
+      "id": "q051",
+      "levelMin": 7,
+      "cefr": "A2",
+      "rule": "definite-geography-water",
+      "sentence": "We sailed across ___ Atlantic Ocean on our way to New York.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because names of oceans always take 'the', so we say 'the Atlantic Ocean'.",
+      "completedSentence": "We sailed across the Atlantic Ocean on our way to New York."
+    },
+    {
+      "id": "q052",
+      "levelMin": 7,
+      "cefr": "A2",
+      "rule": "definite-geography-water",
+      "sentence": "Many famous buildings stand beside ___ Thames in London.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because river names take 'the', so we say 'the Thames'.",
+      "completedSentence": "Many famous buildings stand beside the Thames in London."
+    },
+    {
+      "id": "q053",
+      "levelMin": 7,
+      "cefr": "A2",
+      "rule": "definite-geography-water",
+      "sentence": "Cairo is a huge city on ___ Nile.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because river names take 'the'; the Nile is one specific, well-known river.",
+      "completedSentence": "Cairo is a huge city on the Nile."
+    },
+    {
+      "id": "q054",
+      "levelMin": 7,
+      "cefr": "A2",
+      "rule": "definite-geography-water",
+      "sentence": "Tourists swim in ___ Mediterranean Sea all summer.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because sea names take 'the', so we say 'the Mediterranean Sea'.",
+      "completedSentence": "Tourists swim in the Mediterranean Sea all summer."
+    },
+    {
+      "id": "q055",
+      "levelMin": 7,
+      "cefr": "A2",
+      "rule": "definite-geography-water",
+      "sentence": "Huge whales travel across ___ Pacific Ocean every year.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because ocean names take 'the', so 'the Pacific Ocean' is correct.",
+      "completedSentence": "Huge whales travel across the Pacific Ocean every year."
+    },
+    {
+      "id": "q056",
+      "levelMin": 7,
+      "cefr": "A2",
+      "rule": "definite-specific",
+      "sentence": "Please do not drink ___ water in that river.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because the phrase 'in that river' tells us exactly which water we mean, so the noun is specific.",
+      "completedSentence": "Please do not drink the water in that river."
+    },
+    {
+      "id": "q057",
+      "levelMin": 9,
+      "cefr": "A2",
+      "rule": "definite-instruments",
+      "sentence": "My brother plays ___ guitar in a local band.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because in standard English, musical instruments take 'the' after 'play', so we say 'play the guitar'.",
+      "completedSentence": "My brother plays the guitar in a local band."
+    },
+    {
+      "id": "q058",
+      "levelMin": 9,
+      "cefr": "A2",
+      "rule": "definite-instruments",
+      "sentence": "She is learning to play ___ piano at school.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because we normally use 'the' with musical instruments like the piano after 'play'.",
+      "completedSentence": "She is learning to play the piano at school."
+    },
+    {
+      "id": "q059",
+      "levelMin": 9,
+      "cefr": "A2",
+      "rule": "definite-instruments",
+      "sentence": "Grandpa plays ___ violin beautifully.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because standard English uses 'the' for musical instruments, so 'plays the violin' is correct.",
+      "completedSentence": "Grandpa plays the violin beautifully."
+    },
+    {
+      "id": "q060",
+      "levelMin": 9,
+      "cefr": "A2",
+      "rule": "definite-instruments",
+      "sentence": "In our school orchestra, I play ___ drums.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because musical instruments take 'the' after 'play', so 'play the drums' is correct.",
+      "completedSentence": "In our school orchestra, I play the drums."
+    },
+    {
+      "id": "q061",
+      "levelMin": 9,
+      "cefr": "A2",
+      "rule": "definite-instruments",
+      "sentence": "Lina has played ___ flute since she was six years old.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because English uses 'the' with musical instruments, so 'has played the flute' is correct.",
+      "completedSentence": "Lina has played the flute since she was six years old."
+    },
+    {
+      "id": "q062",
+      "levelMin": 9,
+      "cefr": "A2",
+      "rule": "zero-institutions-purpose",
+      "sentence": "The children walk to ___ school together every morning.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because 'school' here means the institution and its purpose, attending lessons, not a specific building.",
+      "completedSentence": "The children walk to school together every morning."
+    },
+    {
+      "id": "q063",
+      "levelMin": 9,
+      "cefr": "A2",
+      "rule": "zero-institutions-purpose",
+      "sentence": "The students stay in ___ class until half past twelve.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because 'class' refers to the normal purpose of the institution, having lessons, not a particular room.",
+      "completedSentence": "The students stay in class until half past twelve."
+    },
+    {
+      "id": "q064",
+      "levelMin": 9,
+      "cefr": "A2",
+      "rule": "zero-institutions-purpose",
+      "sentence": "My mother is still at ___ work, so we are cooking dinner.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because 'work' takes no article in the phrase 'at work', which describes the institution's normal purpose, doing a job.",
+      "completedSentence": "My mother is still at work, so we are cooking dinner."
+    },
+    {
+      "id": "q065",
+      "levelMin": 9,
+      "cefr": "B1",
+      "rule": "zero-institutions-purpose",
+      "sentence": "The thief was sent to ___ prison for two years.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because 'prison' refers to the institution's purpose, being held there as a prisoner, not the building itself.",
+      "completedSentence": "The thief was sent to prison for two years."
+    },
+    {
+      "id": "q066",
+      "levelMin": 9,
+      "cefr": "A2",
+      "rule": "zero-institutions-purpose",
+      "sentence": "My cousins go to ___ church every Sunday.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because 'church' means attending a religious service, the institution's purpose, not one specific building.",
+      "completedSentence": "My cousins go to church every Sunday."
+    }
+  ]
+}
