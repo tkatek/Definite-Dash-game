@@ -446,13 +446,13 @@
       "levelMin": 2,
       "cefr": "A1",
       "rule": "definite-specific",
-      "sentence": "We had lunch at ___ new restaurant near the station.",
+      "sentence": "We had lunch at ___ restaurant we found near the station.",
       "answer": {
         "category": "definite",
         "article": "the"
       },
-      "explanation": "Use 'the' because the phrase 'near the station' identifies one particular restaurant that both speakers can locate.",
-      "completedSentence": "We had lunch at the new restaurant near the station."
+      "explanation": "Use 'the' because the phrase 'we found near the station' identifies exactly which restaurant we mean.",
+      "completedSentence": "We had lunch at the restaurant we found near the station."
     },
     {
       "id": "q014",
@@ -732,13 +732,13 @@
       "levelMin": 8,
       "cefr": "A2",
       "rule": "zero-general-plural",
-      "sentence": "In my country, ___ trains are often late in winter.",
+      "sentence": "Nowadays, ___ teenagers spend too much time on their phones.",
       "answer": {
         "category": "none",
         "article": ""
       },
-      "explanation": "Use no article because 'trains' is a plural noun describing the whole category of trains in general, not specific trains.",
-      "completedSentence": "In my country, trains are often late in winter."
+      "explanation": "Use no article because 'teenagers' describes the whole group in general, not specific teenagers we know.",
+      "completedSentence": "Nowadays, teenagers spend too much time on their phones."
     },
     {
       "id": "q036",
@@ -1003,7 +1003,7 @@
     {
       "id": "q056",
       "levelMin": 7,
-      "cefr": "A2",
+      "cefr": "A1",
       "rule": "definite-specific",
       "sentence": "Please do not drink ___ water in that river.",
       "answer": {
@@ -1120,7 +1120,7 @@
     {
       "id": "q065",
       "levelMin": 9,
-      "cefr": "B1",
+      "cefr": "A2",
       "rule": "zero-institutions-purpose",
       "sentence": "The thief was sent to ___ prison for two years.",
       "answer": {
@@ -1142,6 +1142,110 @@
       },
       "explanation": "Use no article because 'church' means attending a religious service, the institution's purpose, not one specific building.",
       "completedSentence": "My cousins go to church every Sunday."
+    },
+    {
+      "id": "q067",
+      "levelMin": 1,
+      "cefr": "A1",
+      "rule": "indefinite-first-mention",
+      "sentence": "My brother adopted ___ puppy from the animal shelter.",
+      "answer": {
+        "category": "indefinite",
+        "article": "a"
+      },
+      "explanation": "Use 'a' because the puppy is mentioned for the first time and 'puppy' starts with a consonant sound.",
+      "completedSentence": "My brother adopted a puppy from the animal shelter."
+    },
+    {
+      "id": "q068",
+      "levelMin": 1,
+      "cefr": "A1",
+      "rule": "indefinite-first-mention",
+      "sentence": "She carried ___ enormous suitcase up the stairs.",
+      "answer": {
+        "category": "indefinite",
+        "article": "an"
+      },
+      "explanation": "Use 'an' because 'enormous' begins with a vowel sound, and the suitcase is new to the listener.",
+      "completedSentence": "She carried an enormous suitcase up the stairs."
+    },
+    {
+      "id": "q069",
+      "levelMin": 1,
+      "cefr": "A1",
+      "rule": "indefinite-jobs",
+      "sentence": "Mr. Hill works as ___ taxi driver in Madrid.",
+      "answer": {
+        "category": "indefinite",
+        "article": "a"
+      },
+      "explanation": "Use 'a' because 'taxi driver' is a job, and 'taxi' starts with a consonant sound.",
+      "completedSentence": "Mr. Hill works as a taxi driver in Madrid."
+    },
+    {
+      "id": "q070",
+      "levelMin": 1,
+      "cefr": "A1",
+      "rule": "indefinite-jobs",
+      "sentence": "One day, I want to become ___ astronaut.",
+      "answer": {
+        "category": "indefinite",
+        "article": "an"
+      },
+      "explanation": "Use 'an' because 'astronaut' is a job that begins with a vowel sound.",
+      "completedSentence": "One day, I want to become an astronaut."
+    },
+    {
+      "id": "q071",
+      "levelMin": 9,
+      "cefr": "A2",
+      "rule": "definite-instruments",
+      "sentence": "My sister practises ___ cello every evening.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because musical instruments take 'the' after 'practise', just like after 'play'.",
+      "completedSentence": "My sister practises the cello every evening."
+    },
+    {
+      "id": "q072",
+      "levelMin": 9,
+      "cefr": "A2",
+      "rule": "definite-instruments",
+      "sentence": "Our teacher plays ___ saxophone in a jazz band.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because in standard English, musical instruments take 'the' after 'play'.",
+      "completedSentence": "Our teacher plays the saxophone in a jazz band."
+    },
+    {
+      "id": "q073",
+      "levelMin": 9,
+      "cefr": "A2",
+      "rule": "zero-institutions-purpose",
+      "sentence": "After the accident, she spent a week in ___ hospital.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because 'hospital' refers to the institution's purpose, receiving treatment, not a specific building.",
+      "completedSentence": "After the accident, she spent a week in hospital."
+    },
+    {
+      "id": "q074",
+      "levelMin": 9,
+      "cefr": "A2",
+      "rule": "zero-institutions-purpose",
+      "sentence": "The whole family goes to ___ bed before ten o'clock.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because 'go to bed' describes the purpose of sleeping, not a particular bed.",
+      "completedSentence": "The whole family goes to bed before ten o'clock."
     }
   ]
 }

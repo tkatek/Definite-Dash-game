@@ -9,9 +9,8 @@
  * The UI layer (js/game.js) only renders snapshots/events and forwards input.
  *
  * Pure, dependency-free and DOM-free so the same file runs in Node tests
- * (tests/engine.test.js) and in the browser. The core math mirrors the
- * reference implementation in article-runner-engine/engine.js; richer
- * session/state/persistence behaviour lives here.
+ * (tests/engine.test.js) and in the browser. This is the single canonical
+ * engine for the project; all tuning lives in data/game-data.json.
  */
 
 /* ------------------------------------------------------------------ */
@@ -184,7 +183,7 @@ export class EventBus {
 }
 
 /* ------------------------------------------------------------------ */
-/* Scoring math (pure, mirrors article-runner-engine/engine.js)         */
+/* Scoring math (pure functions so the UI and tests agree with the engine) */
 /* ------------------------------------------------------------------ */
 
 function speedBonusFor(scoring, elapsedMs) {

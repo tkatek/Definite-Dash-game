@@ -1268,9 +1268,9 @@ describe('mastery tracking', () => {
     engine.startLevel(1);
     runLevel(engine, clock);
     engine.startLevel(1);
-    runLevel(engine, clock); // second perfect run: 8 attempts per rule
+    runLevel(engine, clock); // second run draws the newer pool questions first (recent window)
     const fm = engine.getMastery('indefinite-first-mention');
-    assert.equal(fm.attempts, 8);
+    assert.equal(fm.attempts, 10); // 4 (run 1: q001-q004) + 6 (run 2 incl. q067-q068)
     assert.equal(fm.accuracy, 1);
     assert.equal(fm.mastered, true);
   });
@@ -1922,7 +1922,7 @@ describe('determinism and dependency injection', () => {
     const idA = first.engine.getSnapshot().question.id;
     const idB = second.engine.getSnapshot().question.id;
     assert.equal(idA, 'q001');
-    assert.equal(idB, 'q008');
+    assert.equal(idB, 'q070'); // last eligible question in data order (12-question pool)
     assert.notEqual(idA, idB);
   });
 

@@ -1,8 +1,9 @@
 /* ==========================================================================
- * Definite Dash — prototype stylesheet (css/game.css)
+ * Definite Dash — stylesheet (css/game.css)
  * --------------------------------------------------------------------------
- * Deliberately simple: layout, hierarchy and state visibility only.
- * The polished countryside art pass comes in a later phase.
+ * Layout, hierarchy and state visibility. The answer gates use the approved
+ * layered artwork system (see "Answer gates" below); the road/environment
+ * art pass comes in a later phase.
  * ========================================================================== */
 
 /* ---------- reset & base ---------- */
@@ -243,11 +244,6 @@ body {
   cursor: not-allowed;
 }
 
-.level-item.is-current {
-  border-color: #1f7a3d;
-  box-shadow: 0 0 0 2px rgba(31, 122, 61, 0.25);
-}
-
 .level-item-title {
   grid-area: title;
   font-weight: 700;
@@ -364,6 +360,9 @@ body {
   width: 100%;
   min-height: 260px;
   overflow: hidden;
+  /* Size container: gate components cap their width by runner HEIGHT too
+   * (landscape phones), not just by width. */
+  container-type: size;
 }
 
 .road {
@@ -401,37 +400,131 @@ body {
   clip-path: polygon(49.85% 0, 50.15% 0, 84.1% 100%, 83.1% 100%);
 }
 
-/* gates */
+/* ==========================================================================
+ * Answer gates — layered component over the approved artwork
+ * --------------------------------------------------------------------------
+ * .answer-gate          positioned & scaled per frame by js/game.js from the
+ *                        engine's gateProgress (ground point = bottom center)
+ *   __art               gate artwork (assets/gates/gate-<color>.webp), the
+ *                        ONLY visual; transparent WebP with alpha
+ *   __icon              dynamic category icon inside the round top plate
+ *   __label             dynamic answer text on the colored signboard
+ *   ::after             CSS contact shadow so gates stand ON the road
+ *
+ * Category → artwork/label/icon lives ONLY in GATE_VISUALS (js/game.js);
+ * CSS reacts to [data-category] exclusively for fallback art and label sizing.
+ * ========================================================================== */
+
+:root {
+  --font-game: "Baloo 2", "Fredoka", "Arial Rounded MT Bold", "Segoe UI", system-ui, sans-serif;
+}
 
 .gates {
   position: absolute;
   inset: 0;
+  /* gate sizing system: % of runner width, capped by runner height (landscape).
+   * Sized so neighboring signboards never cover each other at the collision
+   * moment, when lanes reach their full spread (posts may still touch). */
+  --gate-w: 36%;
+  --gate-h-cap: 52cqh;
 }
 
-.gate {
+.answer-gate {
   position: absolute;
+  width: min(var(--gate-w), var(--gate-h-cap));
+  aspect-ratio: 960 / 930; /* real artwork proportions — never stretch */
   left: 50%;
   top: 20%;
-  min-width: 74px;
-  max-width: 30%;
-  padding: 10px 14px;
-  background: #ffffff;
-  border: 3px solid #2e5aa8;
-  border-radius: 12px;
-  color: #24418a;
-  font-weight: 800;
-  font-size: clamp(1rem, 2.4vw, 1.5rem);
-  text-align: center;
+  transform: translate(-50%, -100%);
+  transform-origin: center bottom; /* gates stand on the road, scale upward */
   cursor: pointer;
-  transform: translate(-50%, -50%) scale(0.35);
+  touch-action: manipulation;
   will-change: left, top, transform;
-  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.18);
+  /* the label sizes itself against this container's width */
+  container-type: inline-size;
 }
 
-.gate .gate-key {
+.answer-gate__art {
   position: absolute;
-  top: -10px;
-  left: -8px;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain; /* full arch always visible, no cropping */
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  filter: drop-shadow(0 0.6cqh 1cqh rgba(20, 30, 45, 0.22));
+}
+
+/* dynamic answer label — sits on the colored signboard (≈37.5% of art
+ * height), NOT on the image bounding box; counter-scaled by --label-boost
+ * (set from gateProgress) so it stays readable while the gate is far away */
+.answer-gate__label {
+  position: absolute;
+  left: 50%;
+  top: 37.5%;
+  transform: translate(-50%, -50%) scale(var(--label-boost, 1));
+  transform-origin: center;
+  font-family: var(--font-game);
+  font-weight: 800;
+  font-size: clamp(12px, 11.5cqw, 64px);
+  line-height: 1.05;
+  letter-spacing: 0.02em;
+  white-space: nowrap; /* all three answers stay on one line */
+  color: #ffffff;
+  text-shadow:
+    0 0.06em 0 rgba(23, 42, 84, 0.55),
+    0 0.08em 0.14em rgba(15, 23, 42, 0.4);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* "NO ARTICLE" is the longest label — slightly smaller so it never
+ * overflows the purple signboard on small screens */
+.answer-gate[data-category="none"] .answer-gate__label {
+  font-size: clamp(11px, 10.2cqw, 58px);
+}
+
+/* dynamic category icon centered in the round top plate (≈13.5% of art) */
+.answer-gate__icon {
+  position: absolute;
+  left: 50%;
+  top: 13.5%;
+  width: 17cqw;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  color: #ffffff;
+  filter: drop-shadow(0 1px 2px rgba(15, 23, 42, 0.45));
+  pointer-events: none;
+  user-select: none;
+}
+
+.answer-gate__icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* contact shadow — CSS only, never baked into the road or the artwork */
+.answer-gate::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -1%;
+  width: 64%;
+  height: 6.5%;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(50% 50% at 50% 50%, rgba(20, 30, 45, 0.5), rgba(20, 30, 45, 0) 72%);
+  opacity: var(--gate-shadow-o, 0.3);
+  pointer-events: none;
+}
+
+/* debug lane key (dev mode only) */
+.answer-gate .gate-key {
+  position: absolute;
+  top: 1%;
+  left: 1%;
   font-size: 0.62rem;
   font-weight: 700;
   background: #24418a;
@@ -439,52 +532,211 @@ body {
   border-radius: 6px;
   padding: 1px 5px;
   display: none;
+  z-index: 2;
 }
 
-body.debug .gate .gate-key {
+body.debug .answer-gate .gate-key {
   display: block;
 }
 
-.gate.is-chosen {
-  border-color: #1f7a3d;
-  box-shadow: 0 0 0 4px rgba(31, 122, 61, 0.35);
+/* ---------- interaction & feedback states (glow/pulse only — the
+ * artwork itself is never replaced) ---------- */
+
+.answer-gate.is-chosen .answer-gate__art {
+  filter: drop-shadow(0 0 0.9cqh rgba(255, 255, 255, 0.6));
 }
 
-.gate.is-correct {
-  background: #e3f6e8;
-  border-color: #1f7a3d;
+.answer-gate.is-correct .answer-gate__art {
+  filter: drop-shadow(0 0 1.6cqh rgba(52, 168, 83, 0.85));
+  animation: gate-correct-pulse 640ms ease-in-out 2;
 }
 
-.gate.is-wrong {
-  background: #fde8e6;
-  border-color: #c0392b;
+.answer-gate.is-wrong .answer-gate__art {
+  filter: drop-shadow(0 0 1.3cqh rgba(230, 88, 46, 0.75)) saturate(0.85);
 }
 
-/* player */
+@keyframes gate-correct-pulse {
+  0%,
+  100% {
+    scale: 1;
+  }
+
+  50% {
+    scale: 1.045;
+  }
+}
+
+/* ---------- emergency fallback if the artwork cannot load ----------
+ * Plain CSS arch per category so gameplay survives a failed asset. */
+.gates-art-failed .answer-gate__art,
+.gates-art-failed .answer-gate__icon {
+  display: none;
+}
+
+.gates-art-failed .answer-gate {
+  border-radius: 44% 44% 10px 10px / 26% 26% 10px 10px;
+  border: 3px solid rgba(30, 45, 90, 0.8);
+}
+
+.gates-art-failed .answer-gate[data-category="definite"] {
+  background: #2f70eef2;
+}
+
+.gates-art-failed .answer-gate[data-category="indefinite"] {
+  background: #34b55af2;
+}
+
+.gates-art-failed .answer-gate[data-category="none"] {
+  background: #8743d8f2;
+}
+
+/* player character (fox) ---------------------------------------------------
+ * Lane x-positions are defined ONCE here as custom properties on .runner;
+ * js/game.js renders lanes via var(--lane-x-N) only. Frame alignment classes
+ * (pf-1 … pf-8) normalize the slightly different transparent margins of the
+ * source frames so the fox keeps one fixed size, ground line and center.
+ */
+
+.runner {
+  --lane-x-0: 31%;
+  --lane-x-1: 50%;
+  --lane-x-2: 69%;
+}
 
 .player {
   position: absolute;
   top: 84%;
-  left: 50%;
-  width: clamp(38px, 7vw, 58px);
-  height: clamp(38px, 7vw, 58px);
-  border-radius: 50%;
-  background: radial-gradient(circle at 34% 30%, #ffb347, #e07b1b 70%);
-  border: 3px solid #7c4a08;
-  transform: translate(-50%, -50%);
-  transition: left 130ms ease-out;
+  left: var(--lane-x-1);
+  width: clamp(58px, 10.5vw, 100px);
+  aspect-ratio: 1 / 1;
+  transform: translateX(-50%);
+  transition: left 190ms cubic-bezier(0.2, 0.8, 0.2, 1);
   pointer-events: none;
-  z-index: 2;
+  z-index: 5; /* above road and gates, below overlays and feedback UI */
 }
 
-.player.player-correct {
-  background: radial-gradient(circle at 34% 30%, #8be29a, #2f9e4f 70%);
-  border-color: #1c6b36;
+/* subtle vertical bob; the sprite frames carry most of the running motion */
+.player .player-bob {
+  position: absolute;
+  inset: 0;
 }
 
-.player.player-wrong {
-  background: radial-gradient(circle at 34% 30%, #ff9d94, #d64534 70%);
-  border-color: #8c2b1f;
+.player.is-running .player-bob {
+  animation: player-bob 352ms ease-in-out infinite;
+}
+
+@keyframes player-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(calc(-1 * var(--player-bob, 4px)));
+  }
+}
+
+/* ground shadow — always a separate element, never baked into the sprite */
+.player .player-shadow {
+  position: absolute;
+  left: 50%;
+  bottom: 1%;
+  width: 74%;
+  height: 11%;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(50% 50% at 50% 50%, rgba(20, 30, 45, 0.4), rgba(20, 30, 45, 0) 72%);
+}
+
+.player.is-running .player-shadow {
+  animation: player-shadow-pulse 352ms ease-in-out infinite;
+}
+
+@keyframes player-shadow-pulse {
+  0%,
+  100% {
+    transform: translateX(-50%) scale(1);
+    opacity: 0.42;
+  }
+
+  50% {
+    transform: translateX(-50%) scale(0.92);
+    opacity: 0.3;
+  }
+}
+
+.player .player-img {
+  position: absolute;
+  object-fit: contain;
+  image-rendering: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* per-frame alignment, measured from each file's transparent bounds */
+.player-img.pf-1 {
+  width: 105.29%;
+  height: 105.29%;
+  left: 44.33%;
+  bottom: -5.12%;
+}
+
+.player-img.pf-2 {
+  width: 101.05%;
+  height: 101.05%;
+  left: 44.56%;
+  bottom: -0.89%;
+}
+
+.player-img.pf-3 {
+  width: 102.03%;
+  height: 102.03%;
+  left: 44.75%;
+  bottom: -1.87%;
+}
+
+.player-img.pf-4 {
+  width: 102.53%;
+  height: 102.53%;
+  left: 45.05%;
+  bottom: -2.53%;
+}
+
+.player-img.pf-5 {
+  width: 102.7%;
+  height: 102.7%;
+  left: 44.64%;
+  bottom: -2.05%;
+}
+
+.player-img.pf-6 {
+  width: 102.2%;
+  height: 102.2%;
+  left: 43.28%;
+  bottom: -1.06%;
+}
+
+.player-img.pf-7 {
+  width: 103.89%;
+  height: 103.89%;
+  left: 44.24%;
+  bottom: -2.73%;
+}
+
+.player-img.pf-8 {
+  width: 102.2%;
+  height: 102.2%;
+  left: 44.17%;
+  bottom: -2.04%;
+}
+
+/* answer reactions: CSS glow over the approved frames, no extra artwork */
+.player.player-correct .player-img {
+  filter: drop-shadow(0 0 6px rgba(47, 158, 79, 0.85));
+}
+
+.player.player-wrong .player-img {
+  filter: drop-shadow(0 0 6px rgba(214, 69, 52, 0.85));
 }
 
 .controls-hint {
@@ -704,16 +956,38 @@ body.debug .feedback {
   .level-list {
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   }
+
+  /* tablet: gates take a smaller share of the (wider) road */
+  .gates {
+    --gate-w: 32%;
+  }
 }
 
 @media (min-width: 1024px) {
   .controls-hint {
     font-size: 0.8rem;
   }
+
+  /* desktop: capped share of a wide runner; the cqh cap in .gates prevents
+   * absurd sizes on very large/short viewports */
+  .gates {
+    --gate-w: 28%;
+  }
 }
 
 /* small phones */
 @media (max-width: 430px) {
+  .runner {
+    --lane-x-0: 25%;
+    --lane-x-1: 50%;
+    --lane-x-2: 75%;
+  }
+
+  .player {
+    width: clamp(52px, 15vw, 64px);
+    --player-bob: 2.5px;
+  }
+
   .screen {
     padding: 10px;
   }
@@ -738,9 +1012,10 @@ body.debug .feedback {
     font-size: 1rem;
   }
 
-  .gate {
-    min-width: 64px;
-    padding: 8px 10px;
+  /* phones: gates claim a larger share of the narrow road so labels stay
+   * readable; neighboring posts may come close but boards never overlap */
+  .gates {
+    --gate-w: 36%;
   }
 
   .controls-hint {
@@ -774,12 +1049,28 @@ body.debug .feedback {
     font-size: 1.05rem;
     padding: 12px 30px;
   }
+
+  .gates {
+    --gate-w: 38%;
+  }
 }
 
-/* reduce motion politely even in the prototype */
+/* reduce motion politely even in the prototype; lane movement still works.
+ * Depth is gameplay: gates still travel with gateProgress — only decorative
+ * pulsing/glow animations are disabled. */
 @media (prefers-reduced-motion: reduce) {
   .player {
     transition: none;
+  }
+
+  /* the JS side also switches to a slow two-frame loop in this mode */
+  .player.is-running .player-bob,
+  .player.is-running .player-shadow {
+    animation: none;
+  }
+
+  .answer-gate.is-correct .answer-gate__art {
+    animation: none;
   }
 
   .btn {

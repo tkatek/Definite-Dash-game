@@ -14,24 +14,78 @@ import { ArticleRunnerEngine, GAME_STATES, GAME_MODES } from './engine.js';
  * 1. Configuration and DOM references
  * ====================================================================== */
 
-const DEBUG = true; // prototype phase: centralized logging + debug bar; flip off later
+/**
+ * Development mode: enables the debug bar, dev controls, event logging and
+ * window.articleRunnerDebug. Must stay false for production builds; turning
+ * it off changes nothing about normal gameplay.
+ */
+const DEBUG = false;
 
 const DATA_URL = 'data/game-data.json';
 
-/** Display labels for the three engine categories (display concern only). */
-const CATEGORY_LABELS = {
-  definite: 'THE',
-  indefinite: 'A / AN',
-  none: 'NO ARTICLE',
+/* ------------------------------------------------------------------------
+ * Gate visual system — the ONLY place category → gate appearance is mapped.
+ * The engine knows nothing about colors, images, labels or icons; it only
+ * reports categories ("definite" | "indefinite" | "none") per lane, and this
+ * table decides what that category looks like on screen. Color, label and
+ * icon follow the CATEGORY, never the lane.
+ * ---------------------------------------------------------------------- */
+
+/** Lightweight inline category icons (white strokes over the gate's top disc). */
+const GATE_ICONS = {
+  book:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2z"/><path d="M22 4h-6a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h7z"/></svg>',
+  leaf:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg>',
+  ban:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m5.7 5.7 12.6 12.6"/></svg>',
 };
 
-/** Runner geometry in percentages of the runner field. */
+/** Category → gate artwork / dynamic label / icon / accessible name. */
+const GATE_VISUALS = {
+  definite: {
+    art: 'assets/gates/gate-blue.webp',
+    label: 'THE',
+    icon: GATE_ICONS.book,
+    aria: 'Choose THE',
+  },
+  indefinite: {
+    art: 'assets/gates/gate-green.webp',
+    label: 'A / AN',
+    icon: GATE_ICONS.leaf,
+    aria: 'Choose A or AN',
+  },
+  none: {
+    art: 'assets/gates/gate-purple.webp',
+    label: 'NO ARTICLE',
+    icon: GATE_ICONS.ban,
+    aria: 'Choose no article',
+  },
+};
+
+/** Display labels for the three engine categories (display concern only). */
+const CATEGORY_LABELS = {
+  definite: GATE_VISUALS.definite.label,
+  indefinite: GATE_VISUALS.indefinite.label,
+  none: GATE_VISUALS.none.label,
+};
+
+/**
+ * Runner geometry. Ground lines are percentages of the runner field; lane
+ * x positions are owned by the CSS custom properties --lane-x-0/1/2 on
+ * .runner (so phone/desktop road layouts live in one place) and only READ
+ * here by readLaneX().
+ */
 const RUNNER_GEO = {
-  horizonTop: 14, // where gates spawn (near the horizon)
-  playerTop: 84, // player lane line
-  convergence: 0.22, // how much lanes converge at the horizon
-  gateScaleMin: 0.32,
-  gateScaleRange: 0.8,
+  horizonY: 17, // gate ground line where gates spawn (near the horizon)
+  collisionY: 86, // gate ground line at the collision moment (player sits at 84)
+  convergence: 0.42, // how much lanes converge at the horizon (0..1)
+  farScale: 0.3,
+  nearScale: 1.0,
+  farOpacity: 0.6,
+  /** Visual size in px below which labels get a counter-scale boost. */
+  minLabelPx: 12,
+  maxLabelBoost: 2.4,
 };
 
 const dom = {
@@ -61,6 +115,7 @@ const dom = {
   runner: document.getElementById('runner'),
   gatesRoot: document.getElementById('gates'),
   player: document.getElementById('player'),
+  playerImg: document.getElementById('player-img'),
   feedback: document.getElementById('feedback'),
   feedbackTitle: document.getElementById('feedback-title'),
   feedbackSentence: document.getElementById('feedback-sentence'),
@@ -101,7 +156,7 @@ const dom = {
   btnDevSubmit: document.getElementById('btn-dev-submit'),
 };
 
-const gateEls = [...dom.gatesRoot.querySelectorAll('.gate')];
+const gateEls = [...dom.gatesRoot.querySelectorAll('.answer-gate')];
 
 /* ========================================================================
  * 2. Module state
@@ -201,6 +256,8 @@ async function init() {
 
   bindEngineEvents();
   bindUiEvents();
+  preloadRunFrames(); // concurrent, non-blocking: decode can stall in occluded tabs
+  preloadGateArt(); // warm the 3 gate images once; reused from cache afterwards
   renderLevelList();
   showScreen('start');
   startLoop();
@@ -210,6 +267,7 @@ async function init() {
 function recreateEngine() {
   engine = new ArticleRunnerEngine({ data: gameData, mode: selectedMode });
   bindEngineEvents();
+  dom.player.classList.remove('is-running'); // fresh engine starts in READY
   if (DEBUG) window.articleRunnerDebug = { get engine() { return engine; } };
 }
 
@@ -225,7 +283,7 @@ function bindEngineEvents() {
   engine.on('level:started', (payload) => {
     logEvent('level:started', payload);
     clearStartNote();
-    updateHud();
+    renderHUD();
   });
   engine.on('question:loaded', (payload) => {
     logEvent('question:loaded', payload);
@@ -264,12 +322,16 @@ function bindEngineEvents() {
 }
 
 function handleStateChanged({ to }) {
+  const running = to === GAME_STATES.PLAYING;
+  // The fox runs only while the engine is in PLAYING; every other state
+  // freezes the current frame (bob and shadow animations stop too).
+  dom.player.classList.toggle('is-running', running);
   switch (to) {
     case GAME_STATES.READY:
       showScreen('start');
       break;
     case GAME_STATES.PLAYING:
-      dom.overlayPause.classList.add('hidden');
+      renderPause(false);
       hideFeedback();
       showScreen('game');
       break;
@@ -277,15 +339,15 @@ function handleStateChanged({ to }) {
       showScreen('game');
       break;
     case GAME_STATES.PAUSED:
-      dom.overlayPause.classList.remove('hidden');
+      renderPause(true);
       break;
     case GAME_STATES.LEVEL_COMPLETE:
-      dom.overlayPause.classList.add('hidden');
+      renderPause(false);
       renderLevelList();
       showScreen('complete');
       break;
     case GAME_STATES.GAME_OVER:
-      dom.overlayPause.classList.add('hidden');
+      renderPause(false);
       renderLevelList();
       showScreen('gameover');
       break;
@@ -316,11 +378,20 @@ function showScreen(name) {
   }
 }
 
+/**
+ * Pause overlay rendering. (visual pass: restyle the pause screen here;
+ * pause/resume decisions stay in the engine)
+ */
+function renderPause(visible) {
+  dom.overlayPause.classList.toggle('hidden', !visible);
+}
+
 /* ========================================================================
- * 8. HUD rendering
+ * 8. HUD rendering — everything the player sees at the top of the game.
+ *     (visual pass: restyle here; data always comes from the snapshot)
  * ====================================================================== */
 
-function updateHud() {
+function renderHUD() {
   const snap = engine.getSnapshot();
   if (!snap.session) return;
 
@@ -363,48 +434,111 @@ function renderQuestion(payload) {
   blank.textContent = '_______';
   dom.sentence.append(blank, document.createTextNode(after));
 
-  // Lane labels follow the engine's randomized lane map — never a fixed order.
-  payload.laneMap.forEach((category, lane) => {
-    const gate = gateEls[lane];
-    gate.dataset.category = category;
-    gate.querySelector('.gate-label').textContent = CATEGORY_LABELS[category] ?? category;
-    gate.classList.remove('is-chosen', 'is-correct', 'is-wrong');
-  });
-
+  renderLanes(payload.laneMap);
   renderPlayer(payload.playerLane);
   highlightChosenGate(payload.playerLane);
   hideFeedback();
   dom.player.classList.remove('player-correct', 'player-wrong');
-  updateHud();
+  resetPlayerAnimation(); // smooth, valid pose for the new question
+  renderHUD();
+}
+
+/**
+ * Lane rendering: artwork, label and icon follow the engine's randomized
+ * laneMap — never a fixed order. Each gate element keeps one <img>/<span>
+ * pair for its lifetime; only the data wired into them changes per question.
+ */
+function renderLanes(laneMap) {
+  laneMap.forEach((category, lane) => {
+    const gate = gateEls[lane];
+    const visuals = GATE_VISUALS[category];
+    if (!visuals) return; // unknown category: keep previous visuals rather than blank
+    if (gate.dataset.category !== category) {
+      gate.dataset.category = category;
+      const art = gate.querySelector('.answer-gate__art');
+      if (!art.src.endsWith(visuals.art)) art.src = visuals.art;
+      gate.querySelector('.answer-gate__icon').innerHTML = visuals.icon;
+      gate.querySelector('.answer-gate__label').textContent = visuals.label;
+      gate.setAttribute('aria-label', `${visuals.aria} (key ${lane + 1})`);
+    }
+    gate.classList.remove('is-chosen', 'is-correct', 'is-wrong');
+  });
 }
 
 function renderPlayer(lane) {
-  const x = ((lane + 0.5) / 3) * 100;
-  dom.player.style.left = `${x}%`;
+  dom.player.style.left = PLAYER_LANE_POSITIONS[lane];
 }
 
 function highlightChosenGate(lane) {
   gateEls.forEach((gate, index) => gate.classList.toggle('is-chosen', index === lane));
 }
 
+/* ---- perspective: gateProgress (engine, normalized 0..1) → visual depth ---
+ * Everything below is derived per frame from the SAME progress value, so the
+ * three gates always share one depth: ground line, scale, lane spread and
+ * opacity move together. No CSS keyframes drive gate motion.
+ * ------------------------------------------------------------------------ */
+
+/** Lane x positions as fractions (0..1), read from CSS so layouts stay in CSS. */
+let laneXFractions = [0.31, 0.5, 0.69];
+
+function readLaneX() {
+  const style = getComputedStyle(dom.runner);
+  const read = (name, fallback) => {
+    const raw = parseFloat(style.getPropertyValue(name));
+    return Number.isFinite(raw) ? raw / 100 : fallback;
+  };
+  laneXFractions = [
+    read('--lane-x-0', 0.31),
+    read('--lane-x-1', 0.5),
+    read('--lane-x-2', 0.69),
+  ];
+}
+
+/** Base label font in px per gate (unscaled cqw size), refreshed on resize. */
+let gateLabelBasePx = [0, 0, 0];
+
+function refreshGateLabelBase() {
+  gateEls.forEach((gate, i) => {
+    const label = gate.querySelector('.answer-gate__label');
+    gateLabelBasePx[i] = parseFloat(getComputedStyle(label).fontSize) || 0;
+  });
+}
+
 function renderGates() {
   const laneMap = engine.laneMap;
   if (!laneMap || laneMap.length === 0) return;
-  const { horizonTop, playerTop, convergence, gateScaleMin, gateScaleRange } = RUNNER_GEO;
+  // Container-query sizes only resolve on screen — measure lazily on the
+  // first visible frame rather than while #screen-game is display:none.
+  if (gateLabelBasePx.every((px) => px === 0)) refreshGateLabelBase();
+  const { horizonY, collisionY, convergence, farScale, nearScale, farOpacity, minLabelPx, maxLabelBoost } =
+    RUNNER_GEO;
   const p = gateVisualProgress;
+  const scale = farScale + (nearScale - farScale) * p;
 
   for (let lane = 0; lane < 3; lane += 1) {
-    const bottomX = (lane + 0.5) / 3;
-    const topX = 0.5 + (bottomX - 0.5) * convergence;
-    const x = topX + (bottomX - topX) * p;
-    const y = horizonTop + (playerTop - 6 - horizonTop) * p;
-    const scale = gateScaleMin + gateScaleRange * p;
+    // Lane spread: squeezed toward the vanishing point at the horizon, opening
+    // to the real road lanes (CSS --lane-x-*) by the collision moment.
+    const farX = 0.5 + (laneXFractions[lane] - 0.5) * convergence;
+    const x = farX + (laneXFractions[lane] - farX) * p;
+    const y = horizonY + (collisionY - horizonY) * p;
+
     const el = gateEls[lane];
+    // (x, y) is the gate's ground point: bottom-centered, standing on the road.
     el.style.left = `${x * 100}%`;
     el.style.top = `${y}%`;
-    el.style.transform = `translate(-50%, -50%) scale(${scale.toFixed(3)})`;
-    el.style.opacity = (0.55 + 0.45 * p).toFixed(2);
-    el.style.zIndex = String(1 + Math.round(p * 3));
+    el.style.transform = `translate(-50%, -100%) scale(${scale.toFixed(4)})`;
+    el.style.opacity = (farOpacity + (1 - farOpacity) * p).toFixed(3);
+    el.style.zIndex = String(1 + Math.round(p * 3)); // always below the player (z 5)
+    // Contact shadow reads stronger as the gate gets close.
+    el.style.setProperty('--gate-shadow-o', (0.22 + 0.4 * p).toFixed(3));
+
+    // Keep labels readable at distance: counter-scale up while the gate is
+    // small, easing back to 1 once the board itself is large enough.
+    const base = gateLabelBasePx[lane];
+    const boost =
+      base > 0 ? Math.min(maxLabelBoost, Math.max(1, minLabelPx / (base * scale))) : 1;
+    el.style.setProperty('--label-boost', boost.toFixed(3));
   }
 }
 
@@ -465,7 +599,7 @@ function renderFeedback(result) {
   }
 
   dom.btnContinue.focus({ preventScroll: true });
-  updateHud();
+  renderHUD();
 }
 
 /* ========================================================================
@@ -623,7 +757,7 @@ function bindUiEvents() {
   dom.btnQuit.addEventListener('click', () => {
     // Abandon the run: a fresh engine shares the same persisted progress.
     recreateEngine();
-    dom.overlayPause.classList.add('hidden');
+    renderPause(false);
     showScreen('start');
   });
 
@@ -663,6 +797,18 @@ function bindUiEvents() {
 
   // -- keyboard --
   window.addEventListener('keydown', handleKeydown);
+
+  // -- responsive geometry: lane spread + label metrics follow CSS breakpoints --
+  readLaneX();
+  refreshGateLabelBase();
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      readLaneX();
+      refreshGateLabelBase();
+    }, 120);
+  });
 }
 
 function setMode(mode) {
@@ -747,7 +893,146 @@ function continueAfterFeedback() {
 }
 
 /* ========================================================================
- * 14. Animation loop (single rAF; the engine owns timing & collision)
+ * 14. Player character animation (fox) — presentation only.
+ *     The engine never sees filenames, frame timing or images; this
+ *     controller only READS game state and renders the character.
+ * ====================================================================== */
+
+/** Approved run cycle (order chosen by measured stride continuity). */
+const RUN_FRAMES = [
+  { src: 'assets/characters/fox-run-01.png', cls: 'pf-1' },
+  { src: 'assets/characters/fox-run-02.png', cls: 'pf-2' },
+  { src: 'assets/characters/fox-run-03.png', cls: 'pf-3' },
+  { src: 'assets/characters/fox-run-04.png', cls: 'pf-4' },
+  { src: 'assets/characters/fox-run-05.png', cls: 'pf-5' },
+  { src: 'assets/characters/fox-run-06.png', cls: 'pf-6' },
+  { src: 'assets/characters/fox-run-07.png', cls: 'pf-7' },
+  { src: 'assets/characters/fox-run-08.png', cls: 'pf-8' },
+];
+
+/** Milliseconds per running frame (visual only — never affects scoring). */
+const RUN_FRAME_DURATION = 88;
+
+const RUN_FRAME_DURATION_REDUCED = 220;
+
+/** Single lane-position mapping (values live in CSS on .runner). */
+const PLAYER_LANE_POSITIONS = ['var(--lane-x-0)', 'var(--lane-x-1)', 'var(--lane-x-2)'];
+
+const prefersReducedMotion =
+  typeof window !== 'undefined' && window.matchMedia
+    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    : false;
+
+let runFrameIndex = 0;
+let runFrameAccumulator = 0;
+/** Frames that preloaded successfully; always falls back to the first valid one. */
+let runtimeRunFrames = [];
+
+/**
+ * Preload and decode every frame before gameplay so the first run never
+ * flickers. Runs concurrently with boot and NEVER blocks the app: some
+ * browsers stall img.decode() while the page is occluded, so each frame is
+ * raced against a timeout and init() does not await completion. Frames that
+ * genuinely fail (naturalWidth stays 0) are dropped and logged in DEBUG mode;
+ * the animation then simply runs on the frames that did load.
+ */
+const FRAME_PRELOAD_TIMEOUT_MS = 4000;
+
+function preloadOneFrame(frame) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const done = () => resolve({ frame, ok: img.naturalWidth > 0 });
+    img.onload = done;
+    img.onerror = () => resolve({ frame, ok: false });
+    img.src = frame.src;
+    if (typeof img.decode === 'function') {
+      img.decode().then(done, done); // decode result is advisory; onload/timeout settle it
+    }
+    setTimeout(done, FRAME_PRELOAD_TIMEOUT_MS);
+  });
+}
+
+async function preloadRunFrames() {
+  const results = await Promise.all(RUN_FRAMES.map(preloadOneFrame));
+  runtimeRunFrames = results.filter((r) => r.ok).map((r) => r.frame);
+  if (runtimeRunFrames.length < RUN_FRAMES.length && DEBUG) {
+    const missing = RUN_FRAMES.filter((f) => !runtimeRunFrames.includes(f)).map((f) => f.src);
+    console.warn('[game] player frames failed to preload:', missing);
+  }
+  applyRunFrame(0);
+}
+
+/**
+ * Warm the three gate artworks exactly once, before the first level can
+ * start (init kicks this off while the start screen renders). Loaded images
+ * stay in the browser cache; renderLanes then only re-points cached srcs,
+ * never creating new image requests per question. On failure the gates root
+ * gets .gates-art-failed and CSS draws a plain fallback gate instead — the
+ * game must keep working without the artwork.
+ */
+async function preloadGateArt() {
+  const load = (src) =>
+    new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve({ src, ok: img.naturalWidth > 0 });
+      img.onerror = () => resolve({ src, ok: false });
+      img.src = src;
+      if (typeof img.decode === 'function') {
+        img.decode().then(() => resolve({ src, ok: img.naturalWidth > 0 }), () => resolve({ src, ok: false }));
+      }
+    });
+
+  const results = await Promise.all(Object.values(GATE_VISUALS).map((v) => load(v.art)));
+  const failed = results.filter((r) => !r.ok);
+  if (failed.length > 0) {
+    console.error('[game] gate artwork failed to load, using CSS fallback:', failed.map((f) => f.src));
+    dom.gatesRoot.classList.add('gates-art-failed');
+  } else {
+    dom.gatesRoot.classList.add('gates-ready');
+  }
+}
+
+/** Frames actually cycled in the current motion-preference mode. */
+function activeRunFrames() {
+  if (!prefersReducedMotion || runtimeRunFrames.length < 2) return runtimeRunFrames;
+  // Reduced motion: slow two-frame loop (first + opposite phase of the cycle).
+  const mid = Math.floor(runtimeRunFrames.length / 2);
+  return [runtimeRunFrames[0], runtimeRunFrames[mid]];
+}
+
+function activeFrameDuration() {
+  return prefersReducedMotion ? RUN_FRAME_DURATION_REDUCED : RUN_FRAME_DURATION;
+}
+
+function applyRunFrame(index) {
+  const frame = activeRunFrames()[index];
+  if (!frame || dom.playerImg.src.endsWith(frame.src)) return;
+  dom.playerImg.src = frame.src;
+  dom.playerImg.className = `player-img ${frame.cls}`;
+}
+
+function updatePlayerAnimation(deltaMs) {
+  const frames = activeRunFrames();
+  if (frames.length === 0) return;
+  // Clamp so one long frame (tab switch) cannot fast-forward the cycle.
+  runFrameAccumulator += Math.min(deltaMs, 250);
+  const duration = activeFrameDuration();
+  while (runFrameAccumulator >= duration) {
+    runFrameAccumulator -= duration;
+    runFrameIndex = (runFrameIndex + 1) % frames.length;
+  }
+  applyRunFrame(runFrameIndex);
+}
+
+/** Back to a valid pose for a new question, level restart or fresh run. */
+function resetPlayerAnimation() {
+  runFrameIndex = 0;
+  runFrameAccumulator = 0;
+  applyRunFrame(0);
+}
+
+/* ========================================================================
+ * 15. Animation loop (single rAF; the engine owns timing & collision)
  * ====================================================================== */
 
 function startLoop() {
@@ -772,6 +1057,7 @@ function loop(now) {
     if (engine && engine.state === GAME_STATES.PLAYING) {
       engine.update(deltaMs); // engine clamps huge deltas (tab switches) itself
       gateVisualProgress = engine.gateProgress;
+      updatePlayerAnimation(deltaMs); // same loop, same delta — presentation only
     }
     if (engine && currentScreen === 'game') {
       renderGates();
@@ -785,5 +1071,18 @@ function loop(now) {
 /* ========================================================================
  * Boot
  * ====================================================================== */
+
+// TEMPORARY QA hook (removed after visual QA): open the game with #qa to
+// render gates at an arbitrary gateProgress without waiting for realtime
+// gameplay. Engine is untouched; it only re-renders presentation.
+if (typeof window !== 'undefined' && window.location.hash === '#qa') {
+  window.__qa = {
+    play: () => document.getElementById('btn-play').click(),
+    renderAt: (p) => {
+      gateVisualProgress = Math.min(1, Math.max(0, p));
+      renderGates();
+    },
+  };
+}
 
 init();

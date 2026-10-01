@@ -42,7 +42,8 @@
 
       <p id="start-note" class="start-note hidden" role="status"></p>
 
-      <div class="dev-tools" id="dev-tools">
+      <!-- Development-only controls: js/game.js unhides these when DEBUG = true. -->
+      <div class="dev-tools hidden" id="dev-tools">
         <button id="btn-reset-progress" class="btn btn-dev" type="button">Reset progress (dev)</button>
       </div>
     </section>
@@ -75,20 +76,31 @@
           <div class="lane-divider lane-divider-right"></div>
         </div>
         <div id="gates" class="gates">
-          <div class="gate gate-lane-0" data-lane="0" role="button" tabindex="-1">
+          <div class="answer-gate" data-lane="0" role="button" tabindex="-1" aria-label="Answer gate 1">
             <span class="gate-key" aria-hidden="true">1</span>
-            <span class="gate-label"></span>
+            <img class="answer-gate__art" alt="" draggable="false" decoding="async">
+            <span class="answer-gate__icon" aria-hidden="true"></span>
+            <span class="answer-gate__label"></span>
           </div>
-          <div class="gate gate-lane-1" data-lane="1" role="button" tabindex="-1">
+          <div class="answer-gate" data-lane="1" role="button" tabindex="-1" aria-label="Answer gate 2">
             <span class="gate-key" aria-hidden="true">2</span>
-            <span class="gate-label"></span>
+            <img class="answer-gate__art" alt="" draggable="false" decoding="async">
+            <span class="answer-gate__icon" aria-hidden="true"></span>
+            <span class="answer-gate__label"></span>
           </div>
-          <div class="gate gate-lane-2" data-lane="2" role="button" tabindex="-1">
+          <div class="answer-gate" data-lane="2" role="button" tabindex="-1" aria-label="Answer gate 3">
             <span class="gate-key" aria-hidden="true">3</span>
-            <span class="gate-label"></span>
+            <img class="answer-gate__art" alt="" draggable="false" decoding="async">
+            <span class="answer-gate__icon" aria-hidden="true"></span>
+            <span class="answer-gate__label"></span>
           </div>
         </div>
-        <div id="player" class="player" aria-label="Runner"></div>
+        <div id="player" class="player" aria-hidden="true">
+          <div class="player-shadow"></div>
+          <div class="player-bob">
+            <img id="player-img" class="player-img" alt="" draggable="false">
+          </div>
+        </div>
       </div>
 
       <p class="controls-hint">◀ ▶ / A D to switch lanes · gates answer on arrival</p>
