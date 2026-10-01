@@ -424,6 +424,7 @@ function renderHUD() {
 
 function renderQuestion(payload) {
   gateVisualProgress = 0;
+  gateLabelBaseStale = true; // fresh question → remeasure label metrics on screen
 
   // Sentence with a visible blank, built from text nodes only.
   dom.sentence.replaceChildren();
@@ -497,12 +498,19 @@ function readLaneX() {
 
 /** Base label font in px per gate (unscaled cqw size), refreshed on resize. */
 let gateLabelBasePx = [0, 0, 0];
+/**
+ * Re-measure lazily on the first render after layout changes. Container-query
+ * sizes resolve to fallbacks while #screen-game is display:none, so measuring
+ * must happen only on visible frames.
+ */
+let gateLabelBaseStale = true;
 
 function refreshGateLabelBase() {
   gateEls.forEach((gate, i) => {
     const label = gate.querySelector('.answer-gate__label');
     gateLabelBasePx[i] = parseFloat(getComputedStyle(label).fontSize) || 0;
   });
+  gateLabelBaseStale = false;
 }
 
 function renderGates() {
@@ -510,7 +518,7 @@ function renderGates() {
   if (!laneMap || laneMap.length === 0) return;
   // Container-query sizes only resolve on screen — measure lazily on the
   // first visible frame rather than while #screen-game is display:none.
-  if (gateLabelBasePx.every((px) => px === 0)) refreshGateLabelBase();
+  if (gateLabelBaseStale) refreshGateLabelBase();
   const { horizonY, collisionY, convergence, farScale, nearScale, farOpacity, minLabelPx, maxLabelBoost } =
     RUNNER_GEO;
   const p = gateVisualProgress;
