@@ -53,6 +53,10 @@ const WILDCARD_RULE = '*';
 const QUESTION_CEFR = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
 const LEVEL_CEFR = [...QUESTION_CEFR, 'A1/A2', 'A2/B1', 'B1/B2'];
 const REQUIRED_SECTIONS = ['meta', 'settings', 'scoring', 'starRules', 'ruleCatalog', 'levels', 'questions'];
+const INDEFINITE_ARTICLES = ['a', 'an'];
+const CATEGORY_TARGET_SUM_TOLERANCE = 0.001;
+const MAX_FEASIBILITY_SEARCH_ITEMS = 24;
+const MAX_FEASIBILITY_SEARCH_STATES = 50000;
 
 /* ------------------------------------------------------------------ */
 /* Small utilities                                                     */
@@ -87,6 +91,145 @@ function round2(value) {
 }
 function deepCopy(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+}
+
+function countRecord(keys, initial = 0) {
+  return Object.fromEntries(keys.map((key) => [key, initial]));
+}
+
+function listAllowsRule(rules, ruleId) {
+  return Array.isArray(rules) && (rules.includes(WILDCARD_RULE) || rules.includes(ruleId));
+}
+
+function levelAllowsRule(level, ruleId) {
+  return listAllowsRule(level.rules, ruleId) || listAllowsRule(level.contrastRules, ruleId);
+}
+
+/**
+ * Hamilton / largest-remainder allocation followed by capacity-aware
+ * redistribution. The bounded redistribution loop runs at most `total` times.
+ */
+function allocateCappedQuotas(total, targets, capacities, keys) {
+  const safeTotal = Math.max(0, Math.trunc(total));
+  const raw = Object.fromEntries(keys.map((key) => [key, safeTotal * (targets[key] ?? 0)]));
+  const quotas = Object.fromEntries(keys.map((key) => [key, Math.floor(raw[key])]));
+  const keyOrder = new Map(keys.map((key, index) => [key, index]));
+
+  let unassigned = safeTotal - keys.reduce((sum, key) => sum + quotas[key], 0);
+  const remainderOrder = [...keys].sort(
+    (a, b) =>
+      raw[b] - Math.floor(raw[b]) - (raw[a] - Math.floor(raw[a])) ||
+      keyOrder.get(a) - keyOrder.get(b)
+  );
+  for (let i = 0; i < unassigned; i += 1) {
+    quotas[remainderOrder[i % remainderOrder.length]] += 1;
+  }
+
+  for (const key of keys) {
+    const capacity = Math.max(0, Math.trunc(capacities[key] ?? 0));
+    quotas[key] = Math.min(quotas[key], capacity);
+  }
+
+  unassigned = safeTotal - keys.reduce((sum, key) => sum + quotas[key], 0);
+  for (let i = 0; i < unassigned; i += 1) {
+    const candidates = keys.filter((key) => quotas[key] < Math.max(0, Math.trunc(capacities[key] ?? 0)));
+    if (candidates.length === 0) break;
+    candidates.sort(
+      (a, b) =>
+        raw[b] - quotas[b] - (raw[a] - quotas[a]) ||
+        (targets[b] ?? 0) - (targets[a] ?? 0) ||
+        keyOrder.get(a) - keyOrder.get(b)
+    );
+    quotas[candidates[0]] += 1;
+  }
+  return quotas;
+}
+
+function trailingRun(history) {
+  if (history.length === 0) return { value: null, length: 0 };
+  const value = history[history.length - 1];
+  let length = 1;
+  for (let i = history.length - 2; i >= 0 && history[i] === value; i -= 1) length += 1;
+  return { value, length };
+}
+
+function wouldMakeThirdRepeat(history, candidate) {
+  return history.length >= 2 && history[history.length - 1] === candidate && history[history.length - 2] === candidate;
+}
+
+function wouldCompleteCategoryPattern(history, candidate) {
+  if (history.length < 5) return false;
+  const sequence = [...history.slice(-5), candidate];
+  const repeatsTwo =
+    sequence[0] === sequence[2] &&
+    sequence[2] === sequence[4] &&
+    sequence[1] === sequence[3] &&
+    sequence[3] === sequence[5] &&
+    sequence[0] !== sequence[1];
+  const repeatsThree =
+    sequence[0] === sequence[3] &&
+    sequence[1] === sequence[4] &&
+    sequence[2] === sequence[5] &&
+    new Set(sequence.slice(0, 3)).size === 3;
+  return repeatsTwo || repeatsThree;
+}
+
+function runCapacityIsFeasible(remaining, keys, lastValue, lastRunLength) {
+  const total = keys.reduce((sum, key) => sum + remaining[key], 0);
+  return keys.every((key) => {
+    const count = remaining[key];
+    const otherCount = total - count;
+    const firstBlockCapacity = key === lastValue ? Math.max(0, 2 - lastRunLength) : 2;
+    return count <= firstBlockCapacity + 2 * otherCount;
+  });
+}
+
+/**
+ * Exact bounded backtracking for ordinary level sizes, with the equivalent
+ * run-capacity test as a safe large-input/state-budget fallback.
+ */
+function canCompleteWithoutThirdRepeat(remainingInput, history, keys, avoidCategoryPatterns = false) {
+  const remaining = Object.fromEntries(keys.map((key) => [key, Math.max(0, Math.trunc(remainingInput[key] ?? 0))]));
+  const total = keys.reduce((sum, key) => sum + remaining[key], 0);
+  const tail = trailingRun(history);
+  if (!runCapacityIsFeasible(remaining, keys, tail.value, tail.length)) return false;
+  if (total > MAX_FEASIBILITY_SEARCH_ITEMS) return true;
+
+  const memo = new Map();
+  let states = 0;
+  const search = (recentHistory, left) => {
+    if (left === 0) return true;
+    const currentTail = trailingRun(recentHistory);
+    if (states >= MAX_FEASIBILITY_SEARCH_STATES) {
+      return runCapacityIsFeasible(remaining, keys, currentTail.value, currentTail.length);
+    }
+    states += 1;
+    const patternTail = recentHistory.slice(-5);
+    const key = `${keys.map((name) => remaining[name]).join(',')}|${patternTail.join(',')}`;
+    if (memo.has(key)) return memo.get(key);
+    if (!runCapacityIsFeasible(remaining, keys, currentTail.value, currentTail.length)) {
+      memo.set(key, false);
+      return false;
+    }
+
+    const choices = keys
+      .filter((name) => remaining[name] > 0 && !wouldMakeThirdRepeat(recentHistory, name))
+      .filter((name) => !avoidCategoryPatterns || !wouldCompleteCategoryPattern(recentHistory, name))
+      .sort((a, b) => remaining[b] - remaining[a] || String(a).localeCompare(String(b)));
+    for (const choice of choices) {
+      remaining[choice] -= 1;
+      const possible = search([...patternTail, choice], left - 1);
+      remaining[choice] += 1;
+      if (possible) {
+        memo.set(key, true);
+        return true;
+      }
+    }
+    memo.set(key, false);
+    return false;
+  };
+
+  return search(history.slice(-5), total);
 }
 
 function createMemoryStorage() {
@@ -346,6 +489,45 @@ function collectDataProblems(data) {
           if (!ruleIds.has(ruleId)) err(`${tag} references unknown rule "${ruleId}".`);
         }
       }
+      if (level.contrastRules !== undefined) {
+        if (!Array.isArray(level.contrastRules)) {
+          err(`${tag} contrastRules must be an array when provided.`);
+        } else if (level.contrastRules.includes(WILDCARD_RULE)) {
+          if (level.contrastRules.length !== 1) {
+            err(`${tag} contrastRules wildcard "*" must be the only entry.`);
+          }
+        } else {
+          for (const ruleId of level.contrastRules) {
+            if (!ruleIds.has(ruleId)) err(`${tag} contrastRules references unknown rule "${ruleId}".`);
+          }
+        }
+      }
+      if (level.categoryTargets !== undefined) {
+        if (!isPlainObject(level.categoryTargets)) {
+          err(`${tag} categoryTargets must be an object when provided.`);
+        } else {
+          const targetKeys = Object.keys(level.categoryTargets);
+          const hasExactlyThreeCategories =
+            targetKeys.length === VALID_CATEGORIES.length &&
+            VALID_CATEGORIES.every((category) => targetKeys.includes(category));
+          if (!hasExactlyThreeCategories) {
+            err(`${tag} categoryTargets must contain exactly: ${VALID_CATEGORIES.join(', ')}.`);
+          }
+          let targetsAreRatios = true;
+          for (const category of VALID_CATEGORIES) {
+            if (!isRatio(level.categoryTargets[category])) {
+              targetsAreRatios = false;
+              err(`${tag} categoryTargets.${category} must be a positive ratio no greater than 1.`);
+            }
+          }
+          if (targetsAreRatios) {
+            const sum = VALID_CATEGORIES.reduce((total, category) => total + level.categoryTargets[category], 0);
+            if (Math.abs(sum - 1) > CATEGORY_TARGET_SUM_TOLERANCE) {
+              err(`${tag} categoryTargets must sum to 1 (within ${CATEGORY_TARGET_SUM_TOLERANCE}).`);
+            }
+          }
+        }
+      }
       if (!isRatio(level.requiredAccuracy)) {
         err(`${tag} requiredAccuracy must be a ratio between 0 (exclusive) and 1 (inclusive).`);
       }
@@ -439,9 +621,8 @@ function collectDataProblems(data) {
   if (!questionsHaveErrors && Array.isArray(levels) && Array.isArray(questions) && ruleIds.size > 0) {
     for (const level of levels) {
       if (!Number.isInteger(level.id) || !Array.isArray(level.rules)) continue;
-      const wildcard = level.rules.includes(WILDCARD_RULE);
       const eligible = questions.filter(
-        (q) => q.levelMin <= level.id && (wildcard || level.rules.includes(q.rule))
+        (q) => q.levelMin <= level.id && levelAllowsRule(level, q.rule)
       );
       if (eligible.length === 0) {
         err(`Level ${level.id} has no eligible questions for its rules.`);
@@ -543,6 +724,7 @@ export class ArticleRunnerEngine {
     this._settings = data.settings;
     this._scoring = data.scoring;
     this._ruleLabel = new Map(data.ruleCatalog.map((rule) => [rule.id, rule.label]));
+    this._ruleCategory = new Map(data.ruleCatalog.map((rule) => [rule.id, rule.category]));
 
     this._mode = mode ?? data.meta.defaultMode;
     if (!VALID_MODES.includes(this._mode)) {
@@ -583,6 +765,13 @@ export class ArticleRunnerEngine {
     this._results = [];
     this._lastResult = null;
     this._usedQuestionIds = [];
+    this._categoryTargets = countRecord(VALID_CATEGORIES);
+    this._categoryQuotas = countRecord(VALID_CATEGORIES);
+    this._categoryCounts = countRecord(VALID_CATEGORIES);
+    this._categoryHistory = [];
+    this._articleQuotas = countRecord(INDEFINITE_ARTICLES);
+    this._articleCounts = countRecord(INDEFINITE_ARTICLES);
+    this._articleHistory = [];
     this._sessionRuleStats = {};
     this._pauseStartedAt = null;
   }
@@ -747,9 +936,14 @@ export class ArticleRunnerEngine {
     this._results = [];
     this._lastResult = null;
     this._usedQuestionIds = [];
+    this._categoryCounts = countRecord(VALID_CATEGORIES);
+    this._categoryHistory = [];
+    this._articleCounts = countRecord(INDEFINITE_ARTICLES);
+    this._articleHistory = [];
     this._sessionRuleStats = {};
     this._runStartedAt = this._now();
     this._pauseStartedAt = null;
+    this._initializeQuestionSelectionPlan();
 
     this._setState(GAME_STATES.PLAYING);
     this._events.emit('level:started', {
@@ -768,11 +962,66 @@ export class ArticleRunnerEngine {
 
   /* ------------ question selection ------------ */
 
+  _categoryTargetsForLevel(level) {
+    if (isPlainObject(level.categoryTargets)) {
+      return Object.fromEntries(VALID_CATEGORIES.map((category) => [category, level.categoryTargets[category]]));
+    }
+
+    const primaryCategories = level.rules.includes(WILDCARD_RULE)
+      ? [...VALID_CATEGORIES]
+      : [
+          ...new Set(
+            level.rules
+              .map((ruleId) => this._ruleCategory.get(ruleId))
+              .filter((category) => VALID_CATEGORIES.includes(category))
+          ),
+        ];
+    const targets = countRecord(VALID_CATEGORIES);
+    if (primaryCategories.length === 1) {
+      for (const category of VALID_CATEGORIES) {
+        targets[category] = primaryCategories.includes(category) ? 0.5 : 0.25;
+      }
+    } else if (primaryCategories.length === 2) {
+      for (const category of VALID_CATEGORIES) {
+        targets[category] = primaryCategories.includes(category) ? 0.375 : 0.25;
+      }
+    } else {
+      for (const category of VALID_CATEGORIES) targets[category] = 1 / VALID_CATEGORIES.length;
+    }
+    return targets;
+  }
+
+  _initializeQuestionSelectionPlan() {
+    const eligible = this._eligibleQuestions();
+    const categoryAvailability = countRecord(VALID_CATEGORIES);
+    for (const question of eligible) categoryAvailability[question.answer.category] += 1;
+
+    this._categoryTargets = this._categoryTargetsForLevel(this._level);
+    this._categoryQuotas = allocateCappedQuotas(
+      this._totalQuestions,
+      this._categoryTargets,
+      categoryAvailability,
+      VALID_CATEGORIES
+    );
+
+    const articleAvailability = countRecord(INDEFINITE_ARTICLES);
+    for (const question of eligible) {
+      if (question.answer.category === ANSWER_CATEGORIES.INDEFINITE) {
+        articleAvailability[question.answer.article] += 1;
+      }
+    }
+    this._articleQuotas = allocateCappedQuotas(
+      this._categoryQuotas[ANSWER_CATEGORIES.INDEFINITE],
+      { a: 0.5, an: 0.5 },
+      articleAvailability,
+      INDEFINITE_ARTICLES
+    );
+  }
+
   _eligibleQuestions() {
     const level = this._level;
-    const wildcard = level.rules.includes(WILDCARD_RULE);
     return this._data.questions.filter(
-      (q) => q.levelMin <= level.id && (wildcard || level.rules.includes(q.rule))
+      (q) => q.levelMin <= level.id && levelAllowsRule(level, q.rule)
     );
   }
 
@@ -785,24 +1034,145 @@ export class ArticleRunnerEngine {
     return Math.round(Math.min(1 + (max - 1) * weakness, max) * 100) / 100;
   }
 
+  _weightedPick(items, weightFor) {
+    if (items.length === 0) return null;
+    const weights = items.map((item) => {
+      const weight = weightFor(item);
+      return typeof weight === 'number' && Number.isFinite(weight) && weight > 0 ? weight : 0;
+    });
+    const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+    if (totalWeight <= 0) return items[Math.min(items.length - 1, Math.floor(this._rng() * items.length))];
+
+    let roll = this._rng() * totalWeight;
+    for (let i = 0; i < items.length; i += 1) {
+      roll -= weights[i];
+      if (roll <= 0) return items[i];
+    }
+    return items[items.length - 1];
+  }
+
+  _categoryChoiceKeepsQuotasFeasible(category) {
+    const remaining = Object.fromEntries(
+      VALID_CATEGORIES.map((name) => [name, Math.max(0, this._categoryQuotas[name] - this._categoryCounts[name])])
+    );
+    if (remaining[category] <= 0) return false;
+    if (wouldMakeThirdRepeat(this._categoryHistory, category)) return false;
+    if (wouldCompleteCategoryPattern(this._categoryHistory, category)) return false;
+    remaining[category] -= 1;
+    return canCompleteWithoutThirdRepeat(
+      remaining,
+      [...this._categoryHistory, category],
+      VALID_CATEGORIES,
+      true
+    );
+  }
+
+  _articleChoiceKeepsQuotasFeasible(article) {
+    const remaining = Object.fromEntries(
+      INDEFINITE_ARTICLES.map((name) => [name, Math.max(0, this._articleQuotas[name] - this._articleCounts[name])])
+    );
+    if (remaining[article] <= 0) return false;
+    remaining[article] -= 1;
+    return canCompleteWithoutThirdRepeat(remaining, [...this._articleHistory, article], INDEFINITE_ARTICLES);
+  }
+
+  _firstViableOptionSet(stages, patternCheck = null) {
+    for (const stage of stages) {
+      if (stage.length === 0) continue;
+      if (patternCheck) {
+        const patternSafe = stage.filter((option) => !patternCheck(option));
+        if (patternSafe.length > 0) return patternSafe;
+      }
+      return stage;
+    }
+    return [];
+  }
+
+  _pickCategory(questionsByCategory) {
+    const available = VALID_CATEGORIES.filter((category) => questionsByCategory[category].length > 0);
+    const remaining = Object.fromEntries(
+      VALID_CATEGORIES.map((category) => [
+        category,
+        Math.max(0, this._categoryQuotas[category] - this._categoryCounts[category]),
+      ])
+    );
+    const withQuota = available.filter((category) => remaining[category] > 0);
+    const noThird = (category) => !wouldMakeThirdRepeat(this._categoryHistory, category);
+    const feasible = (category) => this._categoryChoiceKeepsQuotasFeasible(category);
+    const options = this._firstViableOptionSet(
+      [
+        withQuota.filter((category) => noThird(category) && feasible(category)),
+        withQuota.filter(noThird),
+        available.filter(noThird),
+        withQuota.filter(feasible),
+        withQuota,
+        available,
+      ],
+      (category) => wouldCompleteCategoryPattern(this._categoryHistory, category)
+    );
+    return this._weightedPick(options, (category) => remaining[category] || 0.25);
+  }
+
+  _pickIndefiniteQuestion(candidates, recent) {
+    const questionsByArticle = Object.fromEntries(INDEFINITE_ARTICLES.map((article) => [article, []]));
+    for (const question of candidates) questionsByArticle[question.answer.article].push(question);
+
+    const available = INDEFINITE_ARTICLES.filter((article) => questionsByArticle[article].length > 0);
+    const remaining = Object.fromEntries(
+      INDEFINITE_ARTICLES.map((article) => [
+        article,
+        Math.max(0, this._articleQuotas[article] - this._articleCounts[article]),
+      ])
+    );
+    const withQuota = available.filter((article) => remaining[article] > 0);
+    const noThird = (article) => !wouldMakeThirdRepeat(this._articleHistory, article);
+    const feasible = (article) => this._articleChoiceKeepsQuotasFeasible(article);
+    const articleOptions = this._firstViableOptionSet([
+      withQuota.filter((article) => noThird(article) && feasible(article)),
+      withQuota.filter(noThird),
+      available.filter(noThird),
+      withQuota.filter(feasible),
+      withQuota,
+      available,
+    ]);
+    const article = this._weightedPick(articleOptions, (name) => remaining[name] || 0.25);
+    if (!article) return null;
+
+    const articleCandidates = questionsByArticle[article];
+    const nonRecent = articleCandidates.filter((question) => !recent.has(question.id));
+    const pool = nonRecent.length > 0 ? nonRecent : articleCandidates;
+    return this._weightedPick(pool, (question) => this._ruleWeight(question.rule));
+  }
+
   _pickQuestion() {
     const eligible = this._eligibleQuestions();
     if (eligible.length === 0) return null;
 
     const used = new Set(this._usedQuestionIds);
     const recent = new Set(this._progress.recentQuestions);
-    let pool = eligible.filter((q) => !used.has(q.id) && !recent.has(q.id));
-    if (pool.length === 0) pool = eligible.filter((q) => !used.has(q.id));
-    if (pool.length === 0) pool = eligible;
-
-    const weights = pool.map((q) => this._ruleWeight(q.rule));
-    const totalWeight = weights.reduce((sum, w) => sum + w, 0);
-    let roll = this._rng() * totalWeight;
-    for (let i = 0; i < pool.length; i += 1) {
-      roll -= weights[i];
-      if (roll <= 0) return pool[i];
+    let pool = eligible.filter((question) => !used.has(question.id));
+    if (pool.length === 0) {
+      const previousId = this._usedQuestionIds[this._usedQuestionIds.length - 1];
+      const withoutImmediateRepeat = eligible.filter((question) => question.id !== previousId);
+      pool = withoutImmediateRepeat.length > 0 ? withoutImmediateRepeat : eligible;
     }
-    return pool[pool.length - 1];
+
+    const questionsByCategory = Object.fromEntries(VALID_CATEGORIES.map((category) => [category, []]));
+    for (const question of pool) questionsByCategory[question.answer.category].push(question);
+    const category = this._pickCategory(questionsByCategory);
+    if (!category) return this._weightedPick(pool, (question) => this._ruleWeight(question.rule));
+
+    const categoryCandidates = questionsByCategory[category];
+    if (category === ANSWER_CATEGORIES.INDEFINITE) {
+      return (
+        this._pickIndefiniteQuestion(categoryCandidates, recent) ??
+        this._weightedPick(categoryCandidates, (question) => this._ruleWeight(question.rule))
+      );
+    }
+
+    const nonRecent = categoryCandidates.filter((question) => !recent.has(question.id));
+    const questionPool = nonRecent.length > 0 ? nonRecent : categoryCandidates;
+    return this._weightedPick(questionPool, (question) => this._ruleWeight(question.rule));
   }
 
   _shuffleLanes() {
@@ -823,6 +1193,13 @@ export class ArticleRunnerEngine {
     this._laneMap = this._shuffleLanes();
     this._setState(GAME_STATES.PLAYING);
     if (question) {
+      this._usedQuestionIds.push(question.id);
+      this._categoryHistory.push(question.answer.category);
+      this._categoryCounts[question.answer.category] += 1;
+      if (question.answer.category === ANSWER_CATEGORIES.INDEFINITE) {
+        this._articleHistory.push(question.answer.article);
+        this._articleCounts[question.answer.article] += 1;
+      }
       this._events.emit('question:loaded', {
         question: this.getPublicQuestion(),
         questionNumber: this._results.length + 1,
@@ -983,7 +1360,6 @@ export class ArticleRunnerEngine {
     this._progress.totalAttempts += 1;
     if (isCorrect) this._progress.totalCorrect += 1;
 
-    this._usedQuestionIds.push(question.id);
     this._progress.recentQuestions.push(question.id);
     if (this._progress.recentQuestions.length > this._settings.recentQuestionWindow) {
       this._progress.recentQuestions.splice(0, this._progress.recentQuestions.length - this._settings.recentQuestionWindow);

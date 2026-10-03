@@ -29,6 +29,8 @@ import {
 const DEBUG = false;
 
 const DATA_URL = 'data/game-data.json';
+const CORRECT_AUTO_CONTINUE_MS = 850;
+const CORRECT_RESUME_AUTO_CONTINUE_MS = 600;
 
 /* ------------------------------------------------------------------------
  * Gate visual system — the ONLY place category → gate appearance is mapped.
@@ -114,12 +116,17 @@ const RUNNER_GEO = {
    * without changing the collision frame.
    */
   gateProgressPower: 1.6,
+  gateSpacingFactor: 0.84,
+  gateSlotFill: 0.9,
+  gateSizeBoost: 1.15,
+  gateSizeBoostStart: 0.02,
+  gateSizeBoostEnd: 0.32,
   minGateScale: 0.2,
-  maxGateScale: 1.08,
+  maxGateScale: 1.18,
   gateSpawnFadePerSecond: 5,
   farOpacity: 0.72,
   /** Visual size in px below which labels get a counter-scale boost. */
-  minLabelPx: 11,
+  minLabelPx: 12,
   maxLabelBoost: 2.3,
   maxLabelWidthRatio: 0.86,
 };
@@ -162,8 +169,11 @@ const RUNNER_GEO = {
  *                       and beyond extrapolate the same line)
  *   perspectivePower    perspective easing exponent (t = depth^power)
  *   roadShoulder        soft grass rim beyond the sand (grows toward camera)
- *   gateLaneFill        gate width as a share of one projected lane
+ *   gateSpacingFactor   visual-only compression of answer-gate centres
+ *   gateSlotFill        gate width as a share of one projected road slot
+ *   gateSizeBoost       depth-ramped emphasis for the decision approach
  *   min/maxGateScale    safety bounds around the lane-derived scale
+ *   gateProgressPower   optional device-specific visual depth easing
  *   far/nearLaneSpacing adjacent lane-centre separation
  *   playerDepth         collision depth shared by fox and gates
  */
@@ -181,9 +191,11 @@ const ROAD_LAYOUTS = {
     perspectivePower: 1.75,
     gateStartDepth: 0.02,
     roadShoulder: 0.016,
-    gateLaneFill: 0.75,
+    gateSpacingFactor: 0.84,
+    gateSlotFill: 0.9,
+    gateSizeBoost: 1.15,
     minGateScale: 0.2,
-    maxGateScale: 1.08,
+    maxGateScale: 1.18,
     markerWidthPx: 10,
     markerHeightPx: 78,
     wearW: 0.11,
@@ -202,9 +214,11 @@ const ROAD_LAYOUTS = {
     perspectivePower: 1.85,
     gateStartDepth: 0.02,
     roadShoulder: 0.017,
-    gateLaneFill: 0.75,
+    gateSpacingFactor: 0.81,
+    gateSlotFill: 0.9,
+    gateSizeBoost: 1.14,
     minGateScale: 0.2,
-    maxGateScale: 1.06,
+    maxGateScale: 1.17,
     markerWidthPx: 9,
     markerHeightPx: 72,
     wearW: 0.11,
@@ -214,18 +228,21 @@ const ROAD_LAYOUTS = {
     horizonY: 0.28,
     bottomY: 1.02,
     centerX: 0.5,
-    farHalfWidth: 0.105,
-    nearHalfWidth: 0.515,
-    farLaneSpacing: 0.07,
-    nearLaneSpacing: 0.3433,
+    farHalfWidth: 0.18,
+    nearHalfWidth: 0.56,
+    farLaneSpacing: 0.12,
+    nearLaneSpacing: 0.3733,
     playerDepth: 0.88,
     worldSpeed: 0.55,
     perspectivePower: 2,
     gateStartDepth: 0.02,
     roadShoulder: 0.016,
-    gateLaneFill: 0.7,
+    gateSpacingFactor: 0.78,
+    gateSlotFill: 0.9,
+    gateSizeBoost: 1.22,
+    gateProgressPower: 1.25,
     minGateScale: 0.22,
-    maxGateScale: 1.02,
+    maxGateScale: 1.22,
     markerWidthPx: 7,
     markerHeightPx: 62,
     wearW: 0.1,
@@ -236,14 +253,105 @@ const ROAD_LAYOUTS = {
 /**
  * Road surface finishing — one central place for the "richness" knobs.
  * The wear bands (soft darkening along both road edges, drawn by
- * drawCodedRoad as clipped polygons) and the sand grain (an inline SVG
- * turbulence layer on .road-surface) are subtle on purpose: they add
+ * drawCodedRoad as clipped polygons) and the moving warm dust grain on
+ * .road-surface are subtle on purpose: they add
  * depth cues, never clutter. Set grain to 0 for a perfectly flat road.
  */
 const ROAD_TEXTURE = {
   /** wear band peak alpha at the road edge, fading to 0 inward. */
-  wearAlpha: 0.26,
+  wearAlpha: 0.2,
 };
+
+/**
+ * Supplied road artwork, sized as a share of one projected lane at the
+ * fox plane. Flat art stays subtle; upright clusters are shoulder-only.
+ */
+const ROAD_DETAIL_ASSETS = Object.freeze({
+  dirt: Object.freeze({
+    src: 'assets/road-details/road-dirt-patch.png',
+    kind: 'flat',
+    widthInLanes: 0.62,
+    maxWidthPx: 220,
+    anchorY: 50,
+    rotationDeg: 11,
+    alpha: Object.freeze([0.24, 0.34]),
+  }),
+  pebbles: Object.freeze({
+    src: 'assets/road-details/road-pebble-scatter.png',
+    kind: 'flat',
+    widthInLanes: 0.38,
+    maxWidthPx: 132,
+    anchorY: 50,
+    rotationDeg: 18,
+    alpha: Object.freeze([0.42, 0.56]),
+  }),
+  branch: Object.freeze({
+    src: 'assets/road-details/road-branch-debris.png',
+    kind: 'raised',
+    widthInLanes: 0.48,
+    maxWidthPx: 152,
+    anchorY: 76,
+    rotationDeg: 24,
+    alpha: Object.freeze([0.48, 0.62]),
+  }),
+  splinters: Object.freeze({
+    src: 'assets/road-details/road-wood-splinters.png',
+    kind: 'raised',
+    widthInLanes: 0.44,
+    maxWidthPx: 150,
+    anchorY: 83,
+    rotationDeg: 20,
+    alpha: Object.freeze([0.46, 0.6]),
+  }),
+  rock: Object.freeze({
+    src: 'assets/road-details/roadside-rock-cluster.png',
+    kind: 'roadside',
+    widthInLanes: 0.46,
+    maxWidthPx: 122,
+    anchorY: 67,
+    rotationDeg: 7,
+    alpha: Object.freeze([0.52, 0.66]),
+  }),
+  rockGrass: Object.freeze({
+    src: 'assets/road-details/roadside-rock-grass-cluster.png',
+    kind: 'roadside',
+    widthInLanes: 0.31,
+    maxWidthPx: 116,
+    anchorY: 79,
+    rotationDeg: 6,
+    alpha: Object.freeze([0.54, 0.68]),
+  }),
+});
+
+const ROAD_DETAIL_FAMILIES = Object.freeze({
+  surface: Object.freeze(['dirt', 'pebbles']),
+  wood: Object.freeze(['branch', 'splinters']),
+  roadside: Object.freeze(['rock', 'rockGrass']),
+});
+
+/** 12 / 10 / 8 active details on desktop / tablet / phone. */
+const ROAD_DETAIL_DENSITY = Object.freeze({ desktop: 2, tablet: 1, mobile: 0 });
+const ROAD_DETAIL_LAYOUT_SCALE = Object.freeze({ desktop: 1, tablet: 0.94, mobile: 0.86 });
+
+/**
+ * Hand-seeded spacing prevents a noisy random field. Recycled details keep
+ * their family and side, but receive restrained asset/position variation
+ * once they have passed below the viewport.
+ */
+const ROAD_DETAIL_SEEDS = Object.freeze([
+  Object.freeze({ asset: 'dirt', family: 'surface', zone: 'edge', side: -1, depth: 0.05, laneOffset: -1.18, rot: -7, size: 0.94, alpha: 0.27, density: 0 }),
+  Object.freeze({ asset: 'pebbles', family: 'surface', zone: 'edge', side: 1, depth: 0.18, laneOffset: 1.3, rot: 13, size: 0.9, alpha: 0.48, density: 0 }),
+  Object.freeze({ asset: 'rockGrass', family: 'roadside', zone: 'outer', side: -1, depth: 0.24, laneOffset: -1.43, rot: -3, size: 0.9, alpha: 0.6, density: 1 }),
+  Object.freeze({ asset: 'branch', family: 'wood', zone: 'edge', side: -1, depth: 0.31, laneOffset: -1.28, rot: -17, size: 0.94, alpha: 0.56, density: 0 }),
+  Object.freeze({ asset: 'rockGrass', family: 'roadside', zone: 'outer', side: 1, depth: 0.38, laneOffset: 1.44, rot: 2, size: 0.86, alpha: 0.58, density: 2 }),
+  Object.freeze({ asset: 'dirt', family: 'surface', zone: 'mid', side: 1, depth: 0.44, laneOffset: 0.73, rot: 6, size: 0.72, alpha: 0.24, density: 0 }),
+  Object.freeze({ asset: 'splinters', family: 'wood', zone: 'edge', side: 1, depth: 0.57, laneOffset: 1.25, rot: 12, size: 0.86, alpha: 0.5, density: 0 }),
+  Object.freeze({ asset: 'pebbles', family: 'surface', zone: 'edge', side: -1, depth: 0.7, laneOffset: -1.34, rot: -10, size: 1.02, alpha: 0.5, density: 0 }),
+  Object.freeze({ asset: 'splinters', family: 'wood', zone: 'edge', side: -1, depth: 0.76, laneOffset: -1.2, rot: 18, size: 0.78, alpha: 0.48, density: 1 }),
+  Object.freeze({ asset: 'rock', family: 'roadside', zone: 'outer', side: 1, depth: 0.83, laneOffset: 1.45, rot: -2, size: 0.92, alpha: 0.6, density: 0 }),
+  Object.freeze({ asset: 'pebbles', family: 'surface', zone: 'mid', side: 1, depth: 0.89, laneOffset: 0.78, rot: 16, size: 0.78, alpha: 0.43, density: 2 }),
+  Object.freeze({ asset: 'branch', family: 'wood', zone: 'edge', side: 1, depth: 0.96, laneOffset: 1.34, rot: -13, size: 0.82, alpha: 0.52, density: 0 }),
+]);
 
 /** Motion tuning for the world layer (visual only — never gameplay). */
 const ROAD_MOTION = {
@@ -286,6 +394,62 @@ const COIN_CONFIG = Object.freeze({
   mobileBaseSizeMinPx: 64,
   baseSizeMaxPx: 78,
   baseSizeRatio: Object.freeze({ desktop: 0.05, tablet: 0.09, mobile: 0.17 }),
+});
+
+const PRELOAD_ASSETS = Object.freeze({
+  critical: Object.freeze([
+    Object.freeze({
+      id: 'initial-markup-images',
+      kind: 'document-images',
+      candidates: Object.freeze([]),
+    }),
+    Object.freeze({
+      id: 'loader-fox',
+      kind: 'loader',
+      candidates: Object.freeze(['assets/ui/loader-fox.webp']),
+    }),
+    ...Object.entries(GATE_VISUALS).map(([category, visual]) => Object.freeze({
+      id: `gate-${category}`,
+      kind: 'gate',
+      candidates: Object.freeze([visual.art]),
+    })),
+    ...RUN_PHASES.map((frame, index) => Object.freeze({
+      id: `fox-run-${index}-${frame.id}`,
+      kind: 'run-frame',
+      frameIndex: index,
+      candidates: Object.freeze([...new Set([frame.src, frame.fallbackSrc].filter(Boolean))]),
+    })),
+  ]),
+  optional: Object.freeze([
+    Object.freeze({
+      id: 'coin-star',
+      kind: 'optional',
+      candidates: Object.freeze([COIN_CONFIG.assetPath]),
+    }),
+  ]),
+  byLayout: Object.freeze({
+    desktop: Object.freeze([
+      Object.freeze({
+        id: 'scenery-desktop',
+        kind: 'scenery',
+        candidates: Object.freeze(['assets/backgrounds/road-desktop.webp']),
+      }),
+    ]),
+    tablet: Object.freeze([
+      Object.freeze({
+        id: 'scenery-tablet',
+        kind: 'scenery',
+        candidates: Object.freeze(['assets/backgrounds/road-tablet.webp']),
+      }),
+    ]),
+    mobile: Object.freeze([
+      Object.freeze({
+        id: 'scenery-mobile',
+        kind: 'scenery',
+        candidates: Object.freeze(['assets/backgrounds/road-mobile-clean-v2.webp']),
+      }),
+    ]),
+  }),
 });
 
 const coinSystem = {
@@ -332,8 +496,8 @@ function clamp01(value) {
   return Math.min(1, Math.max(0, value));
 }
 
-function gateVisualDepth(progress) {
-  return Math.pow(clamp01(progress), RUNNER_GEO.gateProgressPower);
+function gateVisualDepth(progress, power = RUNNER_GEO.gateProgressPower) {
+  return Math.pow(clamp01(progress), power);
 }
 
 function lerp(from, to, amount) {
@@ -369,6 +533,14 @@ function projectLanePoint(depth, laneIndex) {
 }
 
 const dom = {
+  loader: document.getElementById('game-loader'),
+  loaderImage: document.getElementById('game-loader-image'),
+  loaderTitle: document.getElementById('game-loader-title'),
+  loaderMessage: document.getElementById('game-loader-message'),
+  loaderProgress: document.getElementById('game-loader-progress'),
+  loaderProgressFill: document.getElementById('game-loader-progress-fill'),
+  loaderPercent: document.getElementById('game-loader-percent'),
+  loaderRetry: document.getElementById('game-loader-retry'),
   app: document.getElementById('app'),
   // error screen
   screenError: document.getElementById('screen-error'),
@@ -405,6 +577,7 @@ const dom = {
   sentence: document.getElementById('sentence'),
   answerDock: document.getElementById('answer-dock'),
   runner: document.getElementById('runner'),
+  gameTop: document.querySelector('.game-top'),
   scene: document.querySelector('.scene'),
   gatesRoot: document.getElementById('gates'),
   player: document.getElementById('player'),
@@ -473,6 +646,9 @@ let rafId = null;
 let lastFrameTime = null;
 let fatalHandled = false;
 let devBarLastUpdate = 0;
+let feedbackAutoContinueTimer = null;
+let activeFeedbackIsCorrect = null;
+let feedbackPaused = false;
 
 /* ========================================================================
  * 3. Development helpers (centralized; everything gated behind DEBUG)
@@ -508,6 +684,7 @@ function updateDebugBar(now) {
 function fatalError(message, error) {
   if (fatalHandled) return;
   fatalHandled = true;
+  resetFeedbackFlow();
   if (error) logError(message, error);
   stopLoop();
   dom.errorMessage.textContent = error ? `${message}\n\n${error && error.stack ? error.stack : error}` : message;
@@ -541,7 +718,7 @@ async function init() {
       `Could not load game data (${DATA_URL}). Serve the project over HTTP — e.g. "npx serve" or "python -m http.server" — opening index.html directly from disk will not work.`,
       error
     );
-    return;
+    return false;
   }
 
   try {
@@ -549,7 +726,7 @@ async function init() {
     engine = new ArticleRunnerEngine({ data: gameData }); // validates and throws on bad data
   } catch (error) {
     fatalError('The game data failed validation.', error);
-    return;
+    return false;
   }
 
   if (DEBUG) {
@@ -561,17 +738,15 @@ async function init() {
 
   bindEngineEvents();
   bindUiEvents();
-  // Start decoding immediately. startGame awaits this exact promise, so a
-  // fast click can never enter gameplay before the complete cycle is ready.
-  runFramesReady = preloadRunFrames();
-  preloadGateArt(); // warm the 3 gate images once; reused from cache afterwards
   renderLevelList();
   showScreen('start');
   startLoop();
+  return true;
 }
 
 /** A fresh engine instance (READY state) sharing the same persisted progress. */
 function recreateEngine() {
+  resetFeedbackFlow();
   engine = new ArticleRunnerEngine({ data: gameData, mode: selectedMode });
   bindEngineEvents();
   dom.player.classList.remove('is-running'); // fresh engine starts in READY
@@ -589,6 +764,7 @@ function bindEngineEvents() {
   });
   engine.on('level:started', (payload) => {
     logEvent('level:started', payload);
+    resetFeedbackFlow();
     resetCoinSession();
     resetPlayerAnimation(); // only a new/restarted level restarts the gait
     clearStartNote();
@@ -637,6 +813,8 @@ function bindEngineEvents() {
 }
 
 function handleStateChanged({ to }) {
+  if (to !== GAME_STATES.PLAYING) cancelLaneGesture();
+
   // The fox runs while the engine is PLAYING and keeps trotting through
   // FEEDBACK (slowed by the world crawl in the loop); every other state
   // freezes the exact image + phase-driven shadow values.
@@ -645,6 +823,7 @@ function handleStateChanged({ to }) {
   updateAnswerDockState(to);
   switch (to) {
     case GAME_STATES.READY:
+      resetFeedbackFlow();
       showScreen('start');
       break;
     case GAME_STATES.PLAYING:
@@ -660,15 +839,18 @@ function handleStateChanged({ to }) {
       showScreen('game');
       break;
     case GAME_STATES.PAUSED:
+      clearFeedbackAutoContinue();
       renderPause(true);
       break;
     case GAME_STATES.LEVEL_COMPLETE:
+      resetFeedbackFlow();
       showStablePlayerPose();
       renderPause(false);
       renderLevelList();
       showScreen('complete');
       break;
     case GAME_STATES.GAME_OVER:
+      resetFeedbackFlow();
       showStablePlayerPose();
       renderPause(false);
       renderLevelList();
@@ -1053,6 +1235,60 @@ function randRange(min, max) {
   return min + Math.random() * (max - min);
 }
 
+function setRoadDetailAsset(detail, assetKey) {
+  const asset = ROAD_DETAIL_ASSETS[assetKey];
+  if (!asset) return;
+  detail.assetKey = assetKey;
+  detail.anchorY = asset.anchorY;
+  detail.el.className = `road-detail road-detail--${asset.kind}`;
+  detail.el.src = asset.src;
+}
+
+function sizeRoadDetail(detail, laneWidthAtPlayer) {
+  const asset = ROAD_DETAIL_ASSETS[detail.assetKey];
+  if (!asset || world.W < 40) return;
+  const layoutScale = ROAD_DETAIL_LAYOUT_SCALE[world.layoutName] ?? 1;
+  const width = Math.min(
+    asset.maxWidthPx,
+    laneWidthAtPlayer * asset.widthInLanes * detail.size * layoutScale,
+  );
+  detail.el.style.width = `${Math.max(24, width).toFixed(1)}px`;
+}
+
+function nextRoadDetailRandom(detail) {
+  detail.randomState = (Math.imul(detail.randomState, 1664525) + 1013904223) >>> 0;
+  return detail.randomState / 4294967296;
+}
+
+function recycleRoadDetail(detail) {
+  const family = ROAD_DETAIL_FAMILIES[detail.family];
+  if (family?.length) {
+    let assetIndex = Math.floor(nextRoadDetailRandom(detail) * family.length);
+    if (family.length > 1 && family[assetIndex] === detail.assetKey) {
+      assetIndex = (assetIndex + 1) % family.length;
+    }
+    setRoadDetailAsset(detail, family[assetIndex]);
+  }
+
+  const laneRange = detail.zone === 'mid'
+    ? [0.66, 0.84]
+    : detail.zone === 'outer'
+      ? [1.36, 1.46]
+      : [1.14, 1.36];
+  detail.laneOffset = detail.side * lerp(
+    laneRange[0],
+    laneRange[1],
+    nextRoadDetailRandom(detail),
+  );
+
+  const asset = ROAD_DETAIL_ASSETS[detail.assetKey];
+  detail.rot = (nextRoadDetailRandom(detail) * 2 - 1) * asset.rotationDeg;
+  detail.size = 0.84 + nextRoadDetailRandom(detail) * 0.22;
+  detail.alpha = lerp(asset.alpha[0], asset.alpha[1], nextRoadDetailRandom(detail));
+  const playerLaneWidth = projectRoadPoint(world.playerDepth, 0).laneSpacing * world.W;
+  sizeRoadDetail(detail, playerLaneWidth);
+}
+
 function buildRoadWorld() {
   if (world.built) return;
   const layer = roadLayer();
@@ -1079,24 +1315,23 @@ function buildRoadWorld() {
     }
   }
 
-  // Eight fixed road details. Their lane offsets stay stable when recycled,
-  // so no stone can jump sideways or cross a divider while it approaches.
-  const detailSeeds = [
-    { depth: 0.08, laneOffset: -1.26, rot: -18 },
-    { depth: 0.2, laneOffset: 0.08, rot: 24 },
-    { depth: 0.32, laneOffset: 1.22, rot: -31 },
-    { depth: 0.44, laneOffset: -0.12, rot: 11 },
-    { depth: 0.56, laneOffset: -1.18, rot: 35 },
-    { depth: 0.68, laneOffset: 1.16, rot: -9 },
-    { depth: 0.8, laneOffset: 0.16, rot: 29 },
-    { depth: 0.92, laneOffset: -1.24, rot: -38 },
-  ];
-  detailSeeds.forEach((seed, i) => {
-    const el = make(`road-detail road-stone stone-${String.fromCharCode(97 + (i % 4))}`);
-    world.details.push({
+  // Supplied art replaces the placeholder CSS stones. The largest pool is
+  // built once; rebuildWorldGeometry activates a calmer subset per device.
+  ROAD_DETAIL_SEEDS.forEach((seed, i) => {
+    const el = document.createElement('img');
+    el.alt = '';
+    el.draggable = false;
+    el.decoding = 'async';
+    el.setAttribute('aria-hidden', 'true');
+    layer.appendChild(el);
+    const detail = {
       el,
       ...seed,
-    });
+      active: true,
+      randomState: (0x9e3779b9 ^ Math.imul(i + 1, 0x85ebca6b)) >>> 0,
+    };
+    setRoadDetailAsset(detail, seed.asset);
+    world.details.push(detail);
   });
 
   // Dust puffs behind the fox (spawned at runtime, pooled).
@@ -1144,7 +1379,10 @@ function rebuildWorldGeometry() {
     world.gate.depth = lerp(
       layout.gateStartDepth,
       world.playerDepth,
-      gateVisualDepth(gateVisualProgress),
+      gateVisualDepth(
+        gateVisualProgress,
+        layout.gateProgressPower ?? RUNNER_GEO.gateProgressPower,
+      ),
     );
   }
 
@@ -1158,11 +1396,12 @@ function rebuildWorldGeometry() {
   dom.runner.style.setProperty('--lane-marker-width', `${layout.markerWidthPx}px`);
   dom.runner.style.setProperty('--lane-marker-height', `${layout.markerHeightPx}px`);
 
-  // The gate's unscaled width is one safe share of a lane at the fox plane.
-  const laneWidthAtPlayer = playerGround.laneSpacing * world.W;
+  // One road-derived visual slot sets the unscaled gate width. The same base
+  // is projected at every depth, while renderGates owns visual-only spacing.
+  const gateSlotWidthAtPlayer = playerGround.laneSpacing * world.W;
   dom.gatesRoot.style.setProperty(
     '--gate-road-w',
-    `${(laneWidthAtPlayer * (layout.gateLaneFill ?? 0.72)).toFixed(1)}px`,
+    `${(gateSlotWidthAtPlayer * (layout.gateSlotFill ?? RUNNER_GEO.gateSlotFill)).toFixed(1)}px`,
   );
 
   // Divider rails are straight in projected t-space, so every marker on a
@@ -1176,11 +1415,11 @@ function rebuildWorldGeometry() {
   // Resize changes intrinsic sizes only. Normalized depths and texture phase
   // remain untouched, so orientation and breakpoint changes never reset flow.
   dom.runner.style.setProperty('--road-grain-o', String(layout.grain ?? 0.5));
-  const detailBase = Math.max(6, Math.min(14, world.W * 0.0095));
-  world.details.forEach((detail, i) => {
-    const size = detailBase * [0.72, 0.95, 1.12, 0.58][i % 4];
-    detail.el.style.width = `${size.toFixed(1)}px`;
-    detail.el.style.height = `${(size * 0.72).toFixed(1)}px`;
+  const detailDensity = ROAD_DETAIL_DENSITY[world.layoutName] ?? 2;
+  world.details.forEach((detail) => {
+    detail.active = detail.density <= detailDensity;
+    detail.el.hidden = !detail.active;
+    sizeRoadDetail(detail, laneWidthAtPlayer);
   });
   const dustBase = Math.max(10, Math.min(28, world.W * 0.02));
   world.dusts.forEach((p) => {
@@ -1297,7 +1536,7 @@ function renderWorldStatic() {
 }
 
 function setLayerZ(el, depth) {
-  const z = 1 + Math.round(Math.min(Math.max(depth, 0), 1.45) * 2);
+  const z = 110 + Math.round(Math.min(Math.max(depth, 0), 1.45) * 4);
   el.style.zIndex = String(z);
 }
 
@@ -1309,15 +1548,19 @@ function renderMarker(marker) {
     `translate3d(${(p.x * world.W).toFixed(1)}px, ${(p.y * world.H).toFixed(1)}px, 0) ` +
     `translate(-50%, -50%) rotate(${world.divAngle[marker.line].toFixed(1)}deg) ` +
     `scale3d(${scaleX.toFixed(3)}, ${p.scale.toFixed(3)}, 1)`;
-  marker.el.style.opacity = Math.min(0.92, 0.38 + p.t * 1.2).toFixed(2);
+  marker.el.style.opacity = Math.min(0.9, 0.24 + p.t * 1.05).toFixed(2);
 }
 
 function renderRoadDetail(detail) {
+  if (!detail.active) return;
   const p = projectRoadPoint(detail.depth, detail.laneOffset);
+  const visibility = clamp01((p.t - 0.055) / 0.22);
+  detail.el.style.zIndex = String(1 + Math.round(clamp01(detail.depth) * 80));
   detail.el.style.transform =
     `translate3d(${(p.x * world.W).toFixed(1)}px, ${(p.y * world.H).toFixed(1)}px, 0) ` +
-    `translate(-50%, -50%) rotate(${detail.rot}deg) scale(${p.scale.toFixed(3)})`;
-  detail.el.style.opacity = Math.min(0.78, 0.14 + p.t * 1.3).toFixed(2);
+    `translate(-50%, -${detail.anchorY}%) rotate(${detail.rot.toFixed(1)}deg) ` +
+    `scale(${p.scale.toFixed(3)})`;
+  detail.el.style.opacity = (detail.alpha * visibility * (0.48 + 0.52 * p.t)).toFixed(2);
 }
 
 function renderDust(puff) {
@@ -1355,7 +1598,10 @@ function updateWorldMotion(dt, rate, playerAnimFactor) {
     }
     for (const detail of world.details) {
       detail.depth += detailAdvance;
-      if (detail.depth >= 1) detail.depth -= 1;
+      if (detail.depth >= 1) {
+        detail.depth -= 1;
+        recycleRoadDetail(detail);
+      }
       renderRoadDetail(detail);
     }
     for (const puff of world.dusts) {
@@ -1689,7 +1935,14 @@ function updateGateVisual(dt, state) {
   if (state === GAME_STATES.PLAYING) {
     const layout = ROAD_LAYOUTS[world.layoutName];
     const start = layout.gateStartDepth;
-    g.depth = lerp(start, world.playerDepth, gateVisualDepth(gateVisualProgress));
+    g.depth = lerp(
+      start,
+      world.playerDepth,
+      gateVisualDepth(
+        gateVisualProgress,
+        layout.gateProgressPower ?? RUNNER_GEO.gateProgressPower,
+      ),
+    );
     g.spawnFade = Math.min(1, g.spawnFade + dt * RUNNER_GEO.gateSpawnFadePerSecond);
   } else if (state === GAME_STATES.FEEDBACK) {
     world.feedbackT += dt;
@@ -1718,7 +1971,14 @@ function renderGates() {
   const laneScale = centerPoint.laneSpacing / Math.max(0.0001, playerPoint.laneSpacing);
   const minScale = layout.minGateScale ?? RUNNER_GEO.minGateScale;
   const maxScale = layout.maxGateScale ?? RUNNER_GEO.maxGateScale;
-  const scale = Math.min(maxScale, Math.max(minScale, laneScale));
+  const boostStart = layout.gateSizeBoostStart ?? RUNNER_GEO.gateSizeBoostStart;
+  const boostEnd = layout.gateSizeBoostEnd ?? RUNNER_GEO.gateSizeBoostEnd;
+  const boostProgress = clamp01(
+    (gateJourney - boostStart) / Math.max(0.001, boostEnd - boostStart),
+  );
+  const sizeBoost = lerp(1, layout.gateSizeBoost ?? RUNNER_GEO.gateSizeBoost, boostProgress);
+  const scale = Math.min(maxScale, Math.max(minScale, laneScale * sizeBoost));
+  const gateSpacingFactor = layout.gateSpacingFactor ?? RUNNER_GEO.gateSpacingFactor;
   const passProgress = clamp01(
     (D - world.playerDepth) / Math.max(0.001, 1 - world.playerDepth),
   );
@@ -1727,8 +1987,9 @@ function renderGates() {
     (farOpacity + (1 - farOpacity) * gateJourney) * world.gate.spawnFade * passFade;
 
   for (let lane = 0; lane < 3; lane += 1) {
-    // Same projection as every road object; no post-projection lane spread.
-    const p = projectLanePoint(D, lane);
+    // Keep logical lanes untouched: only the visual gate slots are compressed.
+    const visualLaneOffset = (lane - 1) * gateSpacingFactor;
+    const p = projectRoadPoint(D, visualLaneOffset);
     const el = gateEls[lane];
     // (x, y) is the gate's ground point: bottom-centered, standing on the road.
     el.style.transform =
@@ -1755,7 +2016,35 @@ function renderGates() {
  * 10. Feedback rendering (engine payload only — no UI-side explanations)
  * ====================================================================== */
 
+function clearFeedbackAutoContinue() {
+  if (feedbackAutoContinueTimer !== null) {
+    window.clearTimeout(feedbackAutoContinueTimer);
+    feedbackAutoContinueTimer = null;
+  }
+}
+
+function resetFeedbackFlow() {
+  clearFeedbackAutoContinue();
+  activeFeedbackIsCorrect = null;
+  feedbackPaused = false;
+}
+
+function scheduleAutoContinue(delay = CORRECT_AUTO_CONTINUE_MS) {
+  clearFeedbackAutoContinue();
+  feedbackAutoContinueTimer = window.setTimeout(() => {
+    feedbackAutoContinueTimer = null;
+    if (
+      engine?.state === GAME_STATES.FEEDBACK &&
+      activeFeedbackIsCorrect === true &&
+      !feedbackPaused
+    ) {
+      continueAfterFeedback('auto');
+    }
+  }, delay);
+}
+
 function hideFeedback() {
+  resetFeedbackFlow();
   dom.feedback.classList.add('hidden');
   dom.feedback.classList.remove('feedback-correct', 'feedback-wrong');
   dom.screenGame.classList.remove('is-feedback');
@@ -1764,6 +2053,10 @@ function hideFeedback() {
 
 function renderFeedback(result) {
   if (engine.state !== GAME_STATES.FEEDBACK) return; // e.g. game-over screens take over
+
+  clearFeedbackAutoContinue();
+  activeFeedbackIsCorrect = result.isCorrect;
+  feedbackPaused = false;
 
   // World slow-motion through the feedback moment: a short full-speed burst
   // (the fox punches through the gate), then the world settles to a crawl —
@@ -1809,7 +2102,7 @@ function renderFeedback(result) {
   }
 
   if (result.isCorrect) {
-    dom.feedbackDetail.textContent = `+${result.pointsGained} points · streak ${result.streak} · ${result.ruleLabel}`;
+    dom.feedbackDetail.textContent = `+${result.pointsGained} points`;
     if (dom.scorePop) {
       dom.scorePop.textContent = `+${result.pointsGained}`;
       retriggerAnimation(dom.scorePop, 'is-visible');
@@ -1822,7 +2115,13 @@ function renderFeedback(result) {
       `${result.explanation}`;
   }
 
-  dom.btnContinue.focus({ preventScroll: true });
+  dom.btnContinue.hidden = result.isCorrect;
+  dom.btnContinue.disabled = result.isCorrect;
+  if (result.isCorrect) {
+    scheduleAutoContinue();
+  } else {
+    dom.btnContinue.focus({ preventScroll: true });
+  }
   renderHUD();
 }
 
@@ -1992,8 +2291,8 @@ async function startGame(levelId) {
   if (startGamePending) return;
   startGamePending = true;
   try {
-    // Local assets normally decode during the start screen. Awaiting here is
-    // the last guard against a blank/flickering first stride on slow devices.
+    // The startup preloader resolves this shared promise only after every run
+    // phase has decoded, guarding the first stride on slower devices.
     await runFramesReady;
     engine.startLevel(levelId, { mode: selectedMode });
   } catch (error) {
@@ -2007,6 +2306,208 @@ async function startGame(levelId) {
 /* ========================================================================
  * 13. Input handling (keyboard + pointer)
  * ====================================================================== */
+
+const coarsePointerQuery =
+  typeof window !== 'undefined' && window.matchMedia
+    ? window.matchMedia('(pointer: coarse)')
+    : null;
+const SWIPE_HORIZONTAL_BIAS = 1.2;
+const SWIPE_TAP_SLOP_PX = 10;
+const SWIPE_MAX_LANE_FOLLOW = 0.4;
+let laneGesture = null;
+
+function isLaneGesturePointer(event) {
+  if (!event.isPrimary) return false;
+  if (event.pointerType === 'touch' || event.pointerType === 'pen') return true;
+  const hasTouch = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0;
+  return event.pointerType === '' && (coarsePointerQuery?.matches || hasTouch);
+}
+
+function laneGesturesAllowed() {
+  return Boolean(
+    engine && currentScreen === 'game' && engine.state === GAME_STATES.PLAYING
+  );
+}
+
+function pointIsInsideElement(clientX, clientY, element) {
+  if (!element) return false;
+  const rect = element.getBoundingClientRect();
+  return (
+    clientX >= rect.left && clientX <= rect.right &&
+    clientY >= rect.top && clientY <= rect.bottom
+  );
+}
+
+function isLaneGestureBlocked(event) {
+  // .game-top has pointer-events:none, so use its bounds as well as the
+  // event target to keep the HUD/question area out of the road gesture zone.
+  if (pointIsInsideElement(event.clientX, event.clientY, dom.gameTop)) return true;
+  if (!(event.target instanceof Element)) return false;
+  if (event.target.closest('.answer-gate')) return false;
+  return Boolean(event.target.closest(
+    '.game-top, .answer-dock, .feedback, .overlay, ' +
+    'button:not(.answer-gate), a[href], input, select, textarea, ' +
+    '[role="button"], [contenteditable="true"]'
+  ));
+}
+
+function laneAtClientX(clientX) {
+  const rect = dom.runner.getBoundingClientRect();
+  if (rect.width <= 0) return world.playerLane;
+  const lane = Math.floor(((clientX - rect.left) / rect.width) * 3);
+  return Math.max(0, Math.min(2, lane));
+}
+
+function laneAtGestureStart(event) {
+  const gate = event.target instanceof Element
+    ? event.target.closest('.answer-gate')
+    : null;
+  const gateLane = Number(gate?.dataset.lane);
+  return Number.isInteger(gateLane) && gateLane >= 0 && gateLane <= 2
+    ? gateLane
+    : laneAtClientX(event.clientX);
+}
+
+function swipeThresholdPx() {
+  const runnerWidth = dom.runner.getBoundingClientRect().width;
+  const viewportWidth = Math.min(window.innerWidth || runnerWidth, runnerWidth || window.innerWidth);
+  return Math.max(36, Math.min(56, viewportWidth * 0.1));
+}
+
+function playerLaneSpacingPx() {
+  if (world.W > 0) {
+    return projectRoadPoint(world.playerDepth, 0).laneSpacing * world.W;
+  }
+  return dom.runner.getBoundingClientRect().width / 3;
+}
+
+function renderLaneDrag(deltaX) {
+  const maxOffset = Math.max(1, playerLaneSpacingPx() * SWIPE_MAX_LANE_FOLLOW);
+  const offset = Math.max(-maxOffset, Math.min(maxOffset, deltaX * 0.55));
+  const lean = (offset / maxOffset) * 3;
+  dom.player.classList.add('is-dragging');
+  dom.playerLean.classList.add('is-dragging');
+  dom.player.style.setProperty('--player-drag-x', `${offset.toFixed(1)}px`);
+  dom.playerLean.style.setProperty('--player-drag-lean', `${lean.toFixed(2)}deg`);
+}
+
+function resetLaneDragVisual() {
+  dom.player.classList.remove('is-dragging');
+  dom.playerLean.classList.remove('is-dragging');
+  dom.player.style.removeProperty('--player-drag-x');
+  dom.playerLean.style.removeProperty('--player-drag-lean');
+}
+
+function cancelLaneGesture(releaseCapture = true) {
+  const pointerId = laneGesture?.pointerId;
+  laneGesture = null;
+  resetLaneDragVisual();
+  if (
+    releaseCapture &&
+    pointerId !== undefined &&
+    dom.runner.hasPointerCapture?.(pointerId)
+  ) {
+    dom.runner.releasePointerCapture(pointerId);
+  }
+}
+
+function handleRunnerPointerDown(event) {
+  if (event.button !== 0 || isLaneGestureBlocked(event)) return;
+
+  if (!isLaneGesturePointer(event)) {
+    // Preserve the existing mouse/trackpad road-tap path without turning
+    // desktop dragging into a primary control.
+    if (event.isPrimary) movePlayerToLane(laneAtClientX(event.clientX));
+    return;
+  }
+  if (!laneGesturesAllowed() || laneGesture) return;
+
+  laneGesture = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    currentX: event.clientX,
+    currentY: event.clientY,
+    threshold: swipeThresholdPx(),
+    tapLane: laneAtGestureStart(event),
+    horizontalIntent: false,
+    consumed: false,
+  };
+
+  try {
+    dom.runner.setPointerCapture(event.pointerId);
+  } catch (error) {
+    logError('pointer capture', error);
+  }
+}
+
+function handleRunnerPointerMove(event) {
+  const gesture = laneGesture;
+  if (!gesture || event.pointerId !== gesture.pointerId) return;
+  if (!laneGesturesAllowed()) {
+    cancelLaneGesture();
+    return;
+  }
+
+  gesture.currentX = event.clientX;
+  gesture.currentY = event.clientY;
+  const deltaX = gesture.currentX - gesture.startX;
+  const deltaY = gesture.currentY - gesture.startY;
+  const absX = Math.abs(deltaX);
+  const absY = Math.abs(deltaY);
+
+  if (
+    !gesture.horizontalIntent &&
+    absX >= 6 &&
+    absX > absY * SWIPE_HORIZONTAL_BIAS
+  ) {
+    gesture.horizontalIntent = true;
+  }
+  if (!gesture.horizontalIntent) return;
+
+  event.preventDefault();
+  if (absX >= gesture.threshold) gesture.consumed = true;
+  renderLaneDrag(deltaX);
+}
+
+function finishLaneGesture(event, cancelled = false) {
+  const gesture = laneGesture;
+  if (!gesture || event.pointerId !== gesture.pointerId) return;
+
+  gesture.currentX = event.clientX;
+  gesture.currentY = event.clientY;
+  const deltaX = gesture.currentX - gesture.startX;
+  const deltaY = gesture.currentY - gesture.startY;
+  const distance = Math.hypot(deltaX, deltaY);
+  const horizontal =
+    gesture.horizontalIntent &&
+    Math.abs(deltaX) > Math.abs(deltaY) * SWIPE_HORIZONTAL_BIAS;
+  const validSwipe =
+    !cancelled &&
+    laneGesturesAllowed() &&
+    horizontal &&
+    Math.abs(deltaX) >= gesture.threshold;
+  const validTap =
+    !cancelled &&
+    laneGesturesAllowed() &&
+    !gesture.consumed &&
+    distance <= SWIPE_TAP_SLOP_PX;
+  const tapLane = gesture.tapLane;
+  const pointerId = gesture.pointerId;
+
+  if (gesture.horizontalIntent || gesture.consumed) event.preventDefault();
+  laneGesture = null;
+  resetLaneDragVisual();
+  if (dom.runner.hasPointerCapture?.(pointerId)) {
+    dom.runner.releasePointerCapture(pointerId);
+  }
+
+  if (validSwipe) {
+    safeEngineCall(() => (deltaX < 0 ? engine.moveLeft() : engine.moveRight()));
+  } else if (validTap) {
+    movePlayerToLane(tapLane);
+  }
+}
 
 function bindUiEvents() {
   // -- start screen --
@@ -2034,6 +2535,10 @@ function bindUiEvents() {
   // Tap a gate to move to its lane; tapping never resolves the question.
   for (const gate of gateEls) {
     gate.addEventListener('pointerdown', (event) => {
+      if (!event.isPrimary) return;
+      // Touch/pen taps and drags are resolved by the runner gesture path so
+      // starting on a gate still permits a full-road swipe.
+      if (isLaneGesturePointer(event)) return;
       event.preventDefault();
       event.stopPropagation();
       movePlayerToLane(Number(gate.dataset.lane));
@@ -2047,17 +2552,20 @@ function bindUiEvents() {
     });
   }
 
-  // Tap anywhere on the road to move to that lane (mobile-friendly).
-  dom.runner.addEventListener('pointerdown', (event) => {
-    const rect = dom.runner.getBoundingClientRect();
-    const lane = Math.floor(((event.clientX - rect.left) / rect.width) * 3);
-    movePlayerToLane(lane);
+  // The full road accepts coarse-pointer taps, swipes and tactile dragging.
+  dom.runner.addEventListener('pointerdown', handleRunnerPointerDown);
+  dom.runner.addEventListener('pointermove', handleRunnerPointerMove, { passive: false });
+  dom.runner.addEventListener('pointerup', (event) => finishLaneGesture(event));
+  dom.runner.addEventListener('pointercancel', (event) => finishLaneGesture(event, true));
+  dom.runner.addEventListener('lostpointercapture', (event) => {
+    if (laneGesture?.pointerId === event.pointerId) cancelLaneGesture(false);
   });
 
   // -- pause overlay --
   dom.btnResume.addEventListener('click', () => togglePause());
   dom.btnQuit.addEventListener('click', () => {
     // Abandon the run: a fresh engine shares the same persisted progress.
+    resetFeedbackFlow();
     recreateEngine();
     renderPause(false);
     showScreen('start');
@@ -2066,6 +2574,7 @@ function bindUiEvents() {
   // -- level complete --
   dom.btnPlayAgain.addEventListener('click', () => {
     try {
+      resetFeedbackFlow();
       engine.restartLevel();
     } catch (error) {
       logError('restartLevel', error);
@@ -2075,17 +2584,24 @@ function bindUiEvents() {
     const next = nextLevelAfter(engine.getSnapshot().level?.id);
     if (next) startGame(next.id);
   });
-  dom.btnCompleteMenu.addEventListener('click', () => showScreen('start'));
+  dom.btnCompleteMenu.addEventListener('click', () => {
+    resetFeedbackFlow();
+    showScreen('start');
+  });
 
   // -- game over --
   dom.btnRetry.addEventListener('click', () => {
     try {
+      resetFeedbackFlow();
       engine.restartLevel();
     } catch (error) {
       logError('restartLevel', error);
     }
   });
-  dom.btnGameOverMenu.addEventListener('click', () => showScreen('start'));
+  dom.btnGameOverMenu.addEventListener('click', () => {
+    resetFeedbackFlow();
+    showScreen('start');
+  });
 
   // -- dev --
   dom.btnDevSubmit.addEventListener('click', () => {
@@ -2195,7 +2711,10 @@ function handleKeydown(event) {
       break;
     case ' ':
     case 'Enter':
-      if (state === GAME_STATES.FEEDBACK) continueAfterFeedback();
+      if (state === GAME_STATES.FEEDBACK && feedbackPaused) {
+        event.preventDefault();
+        togglePause();
+      } else if (state === GAME_STATES.FEEDBACK) continueAfterFeedback('manual');
       else if (state === GAME_STATES.PAUSED) togglePause();
       else handled = state === GAME_STATES.PLAYING; // don't swallow space while playing
       break;
@@ -2219,15 +2738,32 @@ function safeEngineCall(action) {
 
 function togglePause() {
   const state = engine.state;
-  if (state === GAME_STATES.PLAYING) {
+  if (state === GAME_STATES.FEEDBACK) {
+    if (feedbackPaused) {
+      feedbackPaused = false;
+      renderPause(false);
+      if (activeFeedbackIsCorrect) {
+        scheduleAutoContinue(CORRECT_RESUME_AUTO_CONTINUE_MS);
+      } else {
+        requestAnimationFrame(() => dom.btnContinue.focus({ preventScroll: true }));
+      }
+    } else {
+      feedbackPaused = true;
+      clearFeedbackAutoContinue();
+      renderPause(true);
+    }
+  } else if (state === GAME_STATES.PLAYING) {
     safeEngineCall(() => engine.pause());
   } else if (state === GAME_STATES.PAUSED) {
     safeEngineCall(() => engine.resume());
   }
 }
 
-function continueAfterFeedback() {
-  if (engine.state !== GAME_STATES.FEEDBACK) return;
+function continueAfterFeedback(source = 'manual') {
+  if (engine.state !== GAME_STATES.FEEDBACK || feedbackPaused) return;
+  const isAutomatic = source === 'auto';
+  if (activeFeedbackIsCorrect !== isAutomatic) return;
+  clearFeedbackAutoContinue();
   safeEngineCall(() => engine.continueAfterFeedback());
 }
 
@@ -2254,18 +2790,36 @@ let decodedRunImages = [];
 /** Never cycle a partial gait: eight decoded phases or one planted fallback. */
 let runtimeRunFrames = [{ ...RUN_PHASES[STABLE_RUN_FRAME_INDEX] }];
 
-/**
- * Preload and decode every frame before gameplay so the first run never
- * flickers. Each WebP may fall back to its PNG master, but the game never
- * cycles an incomplete sequence: one missing phase selects a stable pose.
- */
-// Eight high-resolution frames can take several seconds to decode together on
-// a cold mobile cache. Keep a finite escape hatch for broken assets without
-// discarding a valid run cycle on its first load.
-const RUN_FRAME_PRELOAD_TIMEOUT_MS = 15000;
+/* ------------------------------------------------------------------------
+ * Startup image preloader
+ * ---------------------------------------------------------------------- */
+
+const IMAGE_PRELOAD_TIMEOUT_MS = 45000;
+const LOADER_MIN_VISIBLE_MS = 350;
+const LOADER_FADE_MS = 360;
+
+/** Retain decoded images for the life of this page and share duplicate URLs. */
+const decodedImagesByUrl = new Map();
+const decodedImageRequests = new Map();
+const decodedAssetsById = new Map();
+const optionalAssetFailures = new Set();
+const failedDocumentImages = new WeakSet();
+let preloadLayoutName = null;
+let loaderMessageTimers = [];
+let bootPromise = null;
+let initializationPromise = null;
+let gameInitialized = false;
+const loaderShownAt = performance.now();
 
 function loadDecodedImage(src) {
-  return new Promise((resolve, reject) => {
+  const cacheKey = new URL(src, document.baseURI).href;
+  const decoded = decodedImagesByUrl.get(cacheKey);
+  if (decoded) return Promise.resolve(decoded);
+
+  const activeRequest = decodedImageRequests.get(cacheKey);
+  if (activeRequest) return activeRequest;
+
+  const request = new Promise((resolve, reject) => {
     const img = new Image();
     let settled = false;
     let timeoutId = null;
@@ -2280,83 +2834,329 @@ function loadDecodedImage(src) {
     };
 
     img.onload = async () => {
+      let decodeError = null;
       try {
         if (typeof img.decode === 'function') await img.decode();
-        if (img.naturalWidth <= 0) throw new Error(`Zero-width image: ${src}`);
-        settle(resolve, img);
       } catch (error) {
-        settle(reject, error);
+        // Some browsers reject decode() for an otherwise complete cached image.
+        decodeError = error;
+      }
+
+      if (img.complete && img.naturalWidth > 0) {
+        settle(resolve, img);
+      } else {
+        settle(reject, decodeError ?? new Error(`Could not decode ${src}`));
       }
     };
+
     img.onerror = () => settle(reject, new Error(`Could not load ${src}`));
     timeoutId = setTimeout(() => {
-      settle(reject, new Error(`Timed out decoding ${src}`));
-      // Abort a candidate that is still pending before trying its fallback.
+      settle(reject, new Error(`Timed out loading ${src}`));
       img.src = '';
-    }, RUN_FRAME_PRELOAD_TIMEOUT_MS);
+    }, IMAGE_PRELOAD_TIMEOUT_MS);
     img.src = src;
+  })
+    .then((image) => {
+      decodedImagesByUrl.set(cacheKey, image);
+      return image;
+    })
+    .finally(() => decodedImageRequests.delete(cacheKey));
+
+  decodedImageRequests.set(cacheKey, request);
+  return request;
+}
+
+function waitForWindowLoad() {
+  if (document.readyState === 'complete') return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      window.removeEventListener('load', handleLoad);
+      reject(new Error('Timed out waiting for initial page images'));
+    }, IMAGE_PRELOAD_TIMEOUT_MS);
+    const handleLoad = () => {
+      clearTimeout(timeoutId);
+      resolve();
+    };
+    window.addEventListener('load', handleLoad, { once: true });
   });
 }
 
-async function preloadOneFrame(frame) {
-  for (const src of [frame.src, frame.fallbackSrc]) {
+async function decodeDocumentImage(image) {
+  const source = image.currentSrc || image.getAttribute('src');
+  if (!source) return image;
+
+  if (!(image.complete && image.naturalWidth > 0) && failedDocumentImages.has(image)) {
+    // A Retry can recover an element that failed before the connection came
+    // back: warm the URL, then point only that broken element at the cache.
+    await loadDecodedImage(source);
+    image.src = source;
+  }
+
+  let decodeError = null;
+  try {
+    if (typeof image.decode === 'function') await image.decode();
+  } catch (error) {
+    decodeError = error;
+  }
+
+  if (image.complete && image.naturalWidth > 0) {
+    failedDocumentImages.delete(image);
+    return image;
+  }
+
+  failedDocumentImages.add(image);
+  throw decodeError ?? new Error('An initial page image could not load');
+}
+
+async function preloadDocumentImages() {
+  await waitForWindowLoad();
+  const images = [...document.images].filter((image) => image.getAttribute('src'));
+  await Promise.all(images.map(decodeDocumentImage));
+  return images;
+}
+
+async function preloadAsset(entry) {
+  const cached = decodedAssetsById.get(entry.id);
+  if (cached) return cached;
+
+  if (entry.kind === 'document-images') {
+    const images = await preloadDocumentImages();
+    const result = { entry, src: 'document-images', image: images };
+    decodedAssetsById.set(entry.id, result);
+    return result;
+  }
+
+  let lastError = null;
+  for (const src of entry.candidates) {
     try {
       const image = await loadDecodedImage(src);
-      return { frame: { ...frame, src }, image };
+      const result = { entry, src, image };
+      decodedAssetsById.set(entry.id, result);
+      return result;
     } catch (error) {
-      if (DEBUG) console.warn(`[game] run frame candidate failed: ${src}`, error);
+      lastError = error;
+      if (DEBUG) console.warn(`[game] preload candidate failed: ${src}`, error);
     }
   }
-  return null;
+
+  throw lastError ?? new Error(`No usable image candidate for ${entry.id}`);
 }
 
-async function preloadRunFrames() {
-  const results = await Promise.all(RUN_PHASES.map(preloadOneFrame));
-  const complete = results.every(Boolean);
-  decodedRunImages = results.filter(Boolean).map((result) => result.image);
-
-  if (complete) {
-    runtimeRunFrames = results.map((result) => result.frame);
-  } else {
-    const stableResult = results[STABLE_RUN_FRAME_INDEX] ?? results.find(Boolean);
-    runtimeRunFrames = stableResult
-      ? [stableResult.frame]
-      : [{ ...RUN_PHASES[STABLE_RUN_FRAME_INDEX] }];
-    const missing = RUN_PHASES.filter((_, index) => !results[index]).map((frame) => frame.src);
-    console.error('[game] incomplete fox run cycle; using a stable pose:', missing);
+function activePreloadManifest() {
+  if (!preloadLayoutName) {
+    const width = document.documentElement.clientWidth || window.innerWidth;
+    const height = document.documentElement.clientHeight || window.innerHeight;
+    preloadLayoutName = selectRoadLayoutName(width, height);
   }
-  showStablePlayerPose();
-  return complete;
+
+  return [
+    ...PRELOAD_ASSETS.critical.map((entry) => ({ ...entry, critical: true })),
+    ...PRELOAD_ASSETS.byLayout[preloadLayoutName].map((entry) => ({ ...entry, critical: true })),
+    ...PRELOAD_ASSETS.optional.map((entry) => ({ ...entry, critical: false })),
+  ];
 }
 
-/**
- * Warm the three gate artworks exactly once, before the first level can
- * start (init kicks this off while the start screen renders). Loaded images
- * stay in the browser cache; renderLanes then only re-points cached srcs,
- * never creating new image requests per question. On failure the gates root
- * gets .gates-art-failed and CSS draws a plain fallback gate instead — the
- * game must keep working without the artwork.
- */
-async function preloadGateArt() {
-  const load = (src) =>
-    new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => resolve({ src, ok: img.naturalWidth > 0 });
-      img.onerror = () => resolve({ src, ok: false });
-      img.src = src;
-      if (typeof img.decode === 'function') {
-        img.decode().then(() => resolve({ src, ok: img.naturalWidth > 0 }), () => resolve({ src, ok: false }));
+function updateLoaderProgress(completed, total) {
+  const percent = total > 0 ? Math.round((completed / total) * 100) : 100;
+  const clamped = Math.min(100, Math.max(0, percent));
+  dom.loaderProgressFill.style.width = `${clamped}%`;
+  dom.loaderPercent.textContent = `${clamped}%`;
+  dom.loaderProgress.setAttribute('aria-valuenow', String(clamped));
+}
+
+function setLoaderMessage(message, accessibleLabel) {
+  dom.loaderMessage.textContent = message;
+  dom.loader.setAttribute('aria-label', accessibleLabel);
+}
+
+function clearLoaderMessageTimers() {
+  loaderMessageTimers.forEach((timerId) => clearTimeout(timerId));
+  loaderMessageTimers = [];
+}
+
+function scheduleLoaderMessages() {
+  clearLoaderMessageTimers();
+  const changeMessage = (message, label) => {
+    if (dom.loader.dataset.state === 'loading') setLoaderMessage(message, label);
+  };
+  loaderMessageTimers = [
+    setTimeout(() => changeMessage('Loading the game world…', 'Loading the game world'), 2500),
+    setTimeout(() => changeMessage('Almost ready…', 'Almost ready'), 6500),
+  ];
+}
+
+function resetLoaderForAttempt() {
+  document.body.classList.add('is-loading');
+  dom.app.setAttribute('inert', '');
+  dom.app.setAttribute('aria-hidden', 'true');
+  dom.loader.hidden = false;
+  dom.loader.removeAttribute('aria-hidden');
+  dom.loader.classList.remove('is-leaving');
+  dom.loader.dataset.state = 'loading';
+  dom.loader.setAttribute('aria-busy', 'true');
+  dom.loaderTitle.textContent = 'Definite Dash';
+  setLoaderMessage('Getting your adventure ready…', 'Loading Definite Dash');
+  dom.loaderRetry.dataset.action = 'retry';
+  dom.loaderRetry.textContent = 'Try Again';
+  dom.loaderRetry.disabled = true;
+  dom.loaderRetry.hidden = true;
+  updateLoaderProgress(0, 1);
+  scheduleLoaderMessages();
+}
+
+function showLoaderError(title, message, action = 'retry') {
+  clearLoaderMessageTimers();
+  dom.loader.dataset.state = 'error';
+  dom.loader.setAttribute('aria-busy', 'false');
+  dom.loaderTitle.textContent = title;
+  setLoaderMessage(message, 'Load failed');
+  dom.loaderRetry.dataset.action = action;
+  dom.loaderRetry.textContent = action === 'reload' ? 'Reload Page' : 'Try Again';
+  dom.loaderRetry.hidden = false;
+  dom.loaderRetry.disabled = false;
+  requestAnimationFrame(() => dom.loaderRetry.focus({ preventScroll: true }));
+}
+
+function applyPreloadedGameplayAssets(manifest) {
+  const runEntries = manifest
+    .filter((entry) => entry.kind === 'run-frame')
+    .sort((a, b) => a.frameIndex - b.frameIndex);
+  const runResults = runEntries.map((entry) => decodedAssetsById.get(entry.id));
+
+  if (runResults.length === RUN_PHASES.length && runResults.every(Boolean)) {
+    decodedRunImages = runResults.map((result) => result.image);
+    runtimeRunFrames = runResults.map((result) => ({
+      ...RUN_PHASES[result.entry.frameIndex],
+      src: result.src,
+    }));
+    showStablePlayerPose();
+  }
+
+  const gateEntries = manifest.filter((entry) => entry.kind === 'gate');
+  const gatesReady = gateEntries.every((entry) => decodedAssetsById.has(entry.id));
+  dom.gatesRoot.classList.toggle('gates-ready', gatesReady);
+  dom.gatesRoot.classList.toggle('gates-art-failed', !gatesReady);
+}
+
+async function preloadGameAssets() {
+  const manifest = activePreloadManifest();
+  const criticalFailures = [];
+  let completed = 0;
+  const pending = [];
+
+  for (const entry of manifest) {
+    if (decodedAssetsById.has(entry.id) || (!entry.critical && optionalAssetFailures.has(entry.id))) {
+      completed += 1;
+    } else {
+      pending.push(entry);
+    }
+  }
+  updateLoaderProgress(completed, manifest.length);
+
+  await Promise.all(pending.map(async (entry) => {
+    try {
+      await preloadAsset(entry);
+      completed += 1;
+    } catch (error) {
+      if (entry.critical) {
+        criticalFailures.push({ entry, error });
+      } else {
+        optionalAssetFailures.add(entry.id);
+        completed += 1;
+        if (DEBUG) console.warn(`[game] optional preload failed: ${entry.id}`, error);
       }
-    });
+    } finally {
+      updateLoaderProgress(completed, manifest.length);
+    }
+  }));
 
-  const results = await Promise.all(Object.values(GATE_VISUALS).map((v) => load(v.art)));
-  const failed = results.filter((r) => !r.ok);
-  if (failed.length > 0) {
-    console.error('[game] gate artwork failed to load, using CSS fallback:', failed.map((f) => f.src));
-    dom.gatesRoot.classList.add('gates-art-failed');
-  } else {
-    dom.gatesRoot.classList.add('gates-ready');
+  applyPreloadedGameplayAssets(manifest);
+  return { ok: criticalFailures.length === 0, criticalFailures };
+}
+
+function initializeGameOnce() {
+  if (gameInitialized) return Promise.resolve(true);
+  if (!initializationPromise) {
+    fatalHandled = false;
+    initializationPromise = init().then((initialized) => {
+      if (initialized) {
+        gameInitialized = true;
+      } else {
+        // Data/network failures happen before event binding, so a retry is safe.
+        initializationPromise = null;
+      }
+      return initialized;
+    });
   }
+  return initializationPromise;
+}
+
+function waitFor(milliseconds) {
+  if (milliseconds <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function revealLoadedGame() {
+  const remainingMinimum = LOADER_MIN_VISIBLE_MS - (performance.now() - loaderShownAt);
+  await waitFor(remainingMinimum);
+
+  document.body.classList.remove('is-loading');
+  dom.app.removeAttribute('inert');
+  dom.app.removeAttribute('aria-hidden');
+  dom.loader.classList.add('is-leaving');
+  await waitFor(prefersReducedMotion ? 0 : LOADER_FADE_MS);
+  dom.loader.hidden = true;
+  dom.loader.setAttribute('aria-hidden', 'true');
+}
+
+async function performBoot() {
+  resetLoaderForAttempt();
+
+  const preloadPromise = preloadGameAssets();
+  runFramesReady = preloadPromise.then((result) => result.ok, () => false);
+  const preloadResult = await preloadPromise;
+
+  if (!preloadResult.ok) {
+    showLoaderError('Connection problem', "Some game files couldn't load.");
+    return false;
+  }
+
+  clearLoaderMessageTimers();
+  updateLoaderProgress(1, 1);
+  setLoaderMessage('Starting the game…', 'Starting Definite Dash');
+
+  const initialized = await initializeGameOnce();
+  if (!initialized) {
+    showLoaderError('Connection problem', "The game couldn't start. Check your connection and try again.");
+    return false;
+  }
+
+  dom.loader.dataset.state = 'ready';
+  dom.loader.setAttribute('aria-busy', 'false');
+  setLoaderMessage('Game ready.', 'Game ready');
+  await revealLoadedGame();
+  return true;
+}
+
+function bootGame() {
+  if (gameInitialized && dom.loader.hidden) return Promise.resolve(true);
+  if (bootPromise) return bootPromise;
+
+  bootPromise = performBoot()
+    .catch((error) => {
+      if (DEBUG) console.error('[game] startup failed:', error);
+      showLoaderError(
+        'Couldn’t start the game',
+        'Please reload the page and try again.',
+        'reload',
+      );
+      return false;
+    })
+    .finally(() => {
+      bootPromise = null;
+    });
+  return bootPromise;
 }
 
 /**
@@ -2520,4 +3320,12 @@ function loop(now) {
  * Boot
  * ====================================================================== */
 
-init();
+dom.loaderRetry.addEventListener('click', () => {
+  if (dom.loaderRetry.dataset.action === 'reload') {
+    window.location.reload();
+    return;
+  }
+  void bootGame();
+});
+
+void bootGame();

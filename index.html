@@ -7,8 +7,47 @@
   <link rel="stylesheet" href="css/game.css">
   <link rel="stylesheet" href="css/start.css">
 </head>
-<body>
-  <div id="app" class="app">
+<body class="is-loading">
+  <div
+    id="game-loader"
+    class="game-loader"
+    role="status"
+    aria-live="polite"
+    aria-label="Loading Definite Dash"
+    data-state="loading"
+  >
+    <div class="game-loader__content">
+      <div class="game-loader__mascot" aria-hidden="true">
+        <img
+          id="game-loader-image"
+          src="assets/ui/loader-fox.webp"
+          alt=""
+          width="1254"
+          height="1254"
+          decoding="async"
+          fetchpriority="high"
+        >
+      </div>
+      <div id="game-loader-title" class="game-loader__title">Definite Dash</div>
+      <div id="game-loader-message" class="game-loader__message">Getting your adventure ready…</div>
+      <div
+        id="game-loader-progress"
+        class="game-loader__progress"
+        role="progressbar"
+        aria-label="Game loading progress"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow="0"
+        aria-live="off"
+      >
+        <div id="game-loader-progress-fill" class="game-loader__progress-fill"></div>
+      </div>
+      <div id="game-loader-percent" class="game-loader__percent" aria-hidden="true">0%</div>
+      <button id="game-loader-retry" class="game-loader__retry" type="button" hidden>Try Again</button>
+    </div>
+  </div>
+
+  <div id="app" class="app" inert aria-hidden="true">
 
     <!-- ============================================================
          Error screen (data load / validation failures)

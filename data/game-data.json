@@ -155,6 +155,17 @@
         "indefinite-first-mention",
         "indefinite-jobs"
       ],
+      "categoryTargets": {
+        "indefinite": 0.5,
+        "definite": 0.25,
+        "none": 0.25
+      },
+      "contrastRules": [
+        "definite-specific",
+        "definite-unique",
+        "zero-meals",
+        "zero-sports"
+      ],
       "requiredAccuracy": 0.625,
       "unlockAfter": null
     },
@@ -167,6 +178,17 @@
       "rules": [
         "definite-specific",
         "definite-unique"
+      ],
+      "categoryTargets": {
+        "definite": 0.5,
+        "indefinite": 0.25,
+        "none": 0.25
+      },
+      "contrastRules": [
+        "indefinite-first-mention",
+        "indefinite-jobs",
+        "zero-meals",
+        "zero-sports"
       ],
       "requiredAccuracy": 0.625,
       "unlockAfter": 1
@@ -181,6 +203,15 @@
         "indefinite-first-mention",
         "definite-second-mention"
       ],
+      "categoryTargets": {
+        "indefinite": 0.375,
+        "definite": 0.375,
+        "none": 0.25
+      },
+      "contrastRules": [
+        "zero-meals",
+        "zero-sports"
+      ],
       "requiredAccuracy": 0.625,
       "unlockAfter": 2
     },
@@ -194,6 +225,17 @@
         "zero-meals",
         "zero-sports",
         "zero-languages"
+      ],
+      "categoryTargets": {
+        "none": 0.5,
+        "indefinite": 0.25,
+        "definite": 0.25
+      },
+      "contrastRules": [
+        "indefinite-first-mention",
+        "indefinite-jobs",
+        "definite-specific",
+        "definite-unique"
       ],
       "requiredAccuracy": 0.625,
       "unlockAfter": 3
@@ -214,6 +256,11 @@
         "zero-sports",
         "zero-languages"
       ],
+      "categoryTargets": {
+        "indefinite": 0.34,
+        "definite": 0.33,
+        "none": 0.33
+      },
       "requiredAccuracy": 0.625,
       "unlockAfter": 4
     },
@@ -228,6 +275,18 @@
         "definite-ordinal",
         "definite-unique"
       ],
+      "categoryTargets": {
+        "definite": 0.6,
+        "indefinite": 0.2,
+        "none": 0.2
+      },
+      "contrastRules": [
+        "indefinite-first-mention",
+        "indefinite-jobs",
+        "zero-meals",
+        "zero-sports",
+        "zero-languages"
+      ],
       "requiredAccuracy": 0.625,
       "unlockAfter": 5
     },
@@ -240,6 +299,18 @@
       "rules": [
         "definite-geography-water",
         "definite-specific"
+      ],
+      "categoryTargets": {
+        "definite": 0.6,
+        "indefinite": 0.2,
+        "none": 0.2
+      },
+      "contrastRules": [
+        "indefinite-first-mention",
+        "indefinite-jobs",
+        "zero-meals",
+        "zero-sports",
+        "zero-languages"
       ],
       "requiredAccuracy": 0.625,
       "unlockAfter": 6
@@ -255,6 +326,15 @@
         "zero-general-uncountable",
         "definite-specific"
       ],
+      "categoryTargets": {
+        "none": 0.6,
+        "definite": 0.2,
+        "indefinite": 0.2
+      },
+      "contrastRules": [
+        "indefinite-first-mention",
+        "indefinite-jobs"
+      ],
       "requiredAccuracy": 0.625,
       "unlockAfter": 7
     },
@@ -268,6 +348,15 @@
         "definite-instruments",
         "zero-institutions-purpose"
       ],
+      "categoryTargets": {
+        "definite": 0.375,
+        "none": 0.375,
+        "indefinite": 0.25
+      },
+      "contrastRules": [
+        "indefinite-first-mention",
+        "indefinite-jobs"
+      ],
       "requiredAccuracy": 0.625,
       "unlockAfter": 8
     },
@@ -280,6 +369,11 @@
       "rules": [
         "*"
       ],
+      "categoryTargets": {
+        "indefinite": 0.34,
+        "definite": 0.33,
+        "none": 0.33
+      },
       "requiredAccuracy": 0.7,
       "unlockAfter": 9
     }
@@ -1246,6 +1340,110 @@
       },
       "explanation": "Use no article because 'go to bed' describes the purpose of sleeping, not a particular bed.",
       "completedSentence": "The whole family goes to bed before ten o'clock."
+    },
+    {
+      "id": "q075",
+      "levelMin": 1,
+      "cefr": "A1",
+      "rule": "definite-specific",
+      "sentence": "Please close ___ window next to the door.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because 'next to the door' identifies exactly which window the speaker means.",
+      "completedSentence": "Please close the window next to the door."
+    },
+    {
+      "id": "q076",
+      "levelMin": 1,
+      "cefr": "A1",
+      "rule": "definite-specific",
+      "sentence": "Could you turn off ___ light above the sink?",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because 'above the sink' points to one specific light.",
+      "completedSentence": "Could you turn off the light above the sink?"
+    },
+    {
+      "id": "q077",
+      "levelMin": 1,
+      "cefr": "A1",
+      "rule": "definite-unique",
+      "sentence": "We watched ___ moon rise over the mountains.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because the moon is treated as a unique thing that everyone can identify.",
+      "completedSentence": "We watched the moon rise over the mountains."
+    },
+    {
+      "id": "q078",
+      "levelMin": 1,
+      "cefr": "A1",
+      "rule": "definite-unique",
+      "sentence": "Plants need light from ___ sun to grow.",
+      "answer": {
+        "category": "definite",
+        "article": "the"
+      },
+      "explanation": "Use 'the' because the sun is a unique thing known to everyone.",
+      "completedSentence": "Plants need light from the sun to grow."
+    },
+    {
+      "id": "q079",
+      "levelMin": 1,
+      "cefr": "A1",
+      "rule": "zero-meals",
+      "sentence": "We eat ___ breakfast at seven every morning.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because 'breakfast' names a routine meal in a general expression.",
+      "completedSentence": "We eat breakfast at seven every morning."
+    },
+    {
+      "id": "q080",
+      "levelMin": 1,
+      "cefr": "A1",
+      "rule": "zero-meals",
+      "sentence": "Our family usually has ___ dinner together on Fridays.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because 'dinner' is the name of a meal used in a routine expression.",
+      "completedSentence": "Our family usually has dinner together on Fridays."
+    },
+    {
+      "id": "q081",
+      "levelMin": 1,
+      "cefr": "A1",
+      "rule": "zero-sports",
+      "sentence": "Nadia plays ___ tennis after school.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because names of sports such as tennis normally take no article.",
+      "completedSentence": "Nadia plays tennis after school."
+    },
+    {
+      "id": "q082",
+      "levelMin": 1,
+      "cefr": "A1",
+      "rule": "zero-sports",
+      "sentence": "My friends play ___ basketball every weekend.",
+      "answer": {
+        "category": "none",
+        "article": ""
+      },
+      "explanation": "Use no article because basketball is the name of a sport.",
+      "completedSentence": "My friends play basketball every weekend."
     }
   ]
 }

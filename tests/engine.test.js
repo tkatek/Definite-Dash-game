@@ -18,6 +18,7 @@ import {
   GAME_STATES,
   StorageAdapter,
   EventBus,
+  createRng,
   LANE_COUNT,
   START_LANE,
   PROGRESS_STORAGE_KEY,
@@ -50,6 +51,10 @@ function constantRng(value) {
 function sequenceRng(values) {
   let i = 0;
   return () => values[i++ % values.length];
+}
+
+function seededRng(seed) {
+  return createRng(seed);
 }
 
 function createClock(start = 0) {
@@ -126,6 +131,69 @@ function runLevel(engine, clock, { pattern = [], advanceMs = SLOW_MS } = {}) {
     }
   }
   return { results, summary, outcome };
+}
+
+function runLevelTrace(engine, clock, { correct = true, advanceMs = SLOW_MS } = {}) {
+  const trace = [];
+  while (engine.state === GAME_STATES.PLAYING) {
+    const question = engine.getSnapshot().question;
+    const canonical = questionById.get(question.id);
+    assert.ok(canonical, `unknown question ${question.id}`);
+    const result = answerOnce(engine, clock, { correct, advanceMs });
+    trace.push({
+      id: question.id,
+      rule: question.rule,
+      category: canonical.answer.category,
+      article: canonical.answer.article,
+      result,
+    });
+    engine.continueAfterFeedback();
+  }
+  return trace;
+}
+
+function categoryCounts(trace) {
+  return Object.fromEntries(
+    ALL_CATEGORIES.map((category) => [category, trace.filter((entry) => entry.category === category).length])
+  );
+}
+
+function longestCategoryRun(trace) {
+  let longest = 0;
+  let current = 0;
+  let previous = null;
+  for (const entry of trace) {
+    current = entry.category === previous ? current + 1 : 1;
+    previous = entry.category;
+    longest = Math.max(longest, current);
+  }
+  return longest;
+}
+
+function hasRepeatingCategoryPattern(trace) {
+  const categories = trace.map((entry) => entry.category);
+  for (let i = 5; i < categories.length; i += 1) {
+    const sequence = categories.slice(i - 5, i + 1);
+    const repeatsTwo =
+      sequence[0] === sequence[2] &&
+      sequence[2] === sequence[4] &&
+      sequence[1] === sequence[3] &&
+      sequence[3] === sequence[5] &&
+      sequence[0] !== sequence[1];
+    const repeatsThree =
+      sequence[0] === sequence[3] &&
+      sequence[1] === sequence[4] &&
+      sequence[2] === sequence[5] &&
+      new Set(sequence.slice(0, 3)).size === 3;
+    if (repeatsTwo || repeatsThree) return true;
+  }
+  return false;
+}
+
+function traceForLevel(levelId, seed, { storage, correct = true } = {}) {
+  const made = makeEngine({ rng: seededRng(seed), storage });
+  made.engine.startLevel(levelId, { ignoreLock: true });
+  return runLevelTrace(made.engine, made.clock, { correct });
 }
 
 function expectedMultiplier(streakBefore) {
@@ -276,7 +344,18 @@ describe('validateData', () => {
   test('rejects a level with no eligible questions', () => {
     const data = cloneData();
     data.levels[0].rules = ['definite-instruments']; // exists, but nothing eligible for level 1
+    data.levels[0].contrastRules = [];
     assert.throws(() => ArticleRunnerEngine.validateData(data), /no eligible questions/);
+  });
+
+  test('rejects unknown contrast rules and category targets that do not sum to one', () => {
+    const badContrast = cloneData();
+    badContrast.levels[0].contrastRules = ['made-up-contrast'];
+    assert.throws(() => ArticleRunnerEngine.validateData(badContrast), /contrastRules references unknown rule/);
+
+    const badTargets = cloneData();
+    badTargets.levels[0].categoryTargets.none = 0.5;
+    assert.throws(() => ArticleRunnerEngine.validateData(badTargets), /categoryTargets must sum to 1/);
   });
 
   test('rejects broken scoring configuration', () => {
@@ -334,13 +413,27 @@ describe('game-data.json integrity', () => {
     }
   });
 
-  test('every question rule and every level rule reference exists in the catalog', () => {
+  test('every question, primary level rule and contrast rule references the catalog', () => {
     const ruleIds = new Set(gameData.ruleCatalog.map((r) => r.id));
     for (const q of gameData.questions) assert.ok(ruleIds.has(q.rule), `question ${q.id}`);
     for (const level of gameData.levels) {
-      for (const rule of level.rules) {
+      const contrastRules = level.contrastRules ?? [];
+      assert.ok(Array.isArray(contrastRules), `level ${level.id} contrastRules`);
+      for (const rule of [...level.rules, ...contrastRules]) {
         assert.ok(rule === '*' || ruleIds.has(rule), `level ${level.id} rule ${rule}`);
       }
+    }
+  });
+
+  test('every level defines positive category targets that sum to one', () => {
+    const expectedCategories = [...ALL_CATEGORIES].sort();
+    for (const level of gameData.levels) {
+      assert.deepEqual(Object.keys(level.categoryTargets).sort(), expectedCategories, `level ${level.id} categories`);
+      for (const category of ALL_CATEGORIES) {
+        assert.ok(level.categoryTargets[category] > 0, `level ${level.id} ${category} target`);
+      }
+      const total = Object.values(level.categoryTargets).reduce((sum, target) => sum + target, 0);
+      assert.ok(Math.abs(total - 1) < 1e-9, `level ${level.id} targets total ${total}`);
     }
   });
 
@@ -775,6 +868,8 @@ describe('gate timing', () => {
   test('reaching the gate auto-resolves the current lane as a collision', () => {
     const { engine } = makeEngine();
     engine.startLevel(1);
+    const questionId = engine.getSnapshot().question.id;
+    engine.chooseCategory(correctCategoryFor(questionId));
     let guard = 0;
     while (engine.state === GAME_STATES.PLAYING && guard < 300) {
       engine.update(100);
@@ -783,14 +878,17 @@ describe('gate timing', () => {
     assert.equal(engine.state, GAME_STATES.FEEDBACK);
     const result = engine.getSnapshot().lastResult;
     assert.equal(result.automatic, true);
-    assert.equal(result.isCorrect, true); // center lane matches q001 ("a" -> indefinite)
+    assert.equal(result.isCorrect, true);
     assert.equal(engine.inputLocked, true);
   });
 
   test('a collision while in the wrong lane counts as wrong', () => {
     const { engine } = makeEngine();
     engine.startLevel(1);
-    engine.moveToLane(0); // "definite" lane; q001 answer is indefinite
+    const questionId = engine.getSnapshot().question.id;
+    const wrongCategory = wrongCategoryFor(questionId);
+    engine.chooseCategory(wrongCategory);
+    const selectedLane = engine.playerLane;
     let guard = 0;
     while (engine.state === GAME_STATES.PLAYING && guard < 300) {
       engine.update(100);
@@ -798,8 +896,8 @@ describe('gate timing', () => {
     }
     const result = engine.getSnapshot().lastResult;
     assert.equal(result.isCorrect, false);
-    assert.equal(result.selectedLane, 0);
-    assert.equal(result.selectedCategory, 'definite');
+    assert.equal(result.selectedLane, selectedLane);
+    assert.equal(result.selectedCategory, wrongCategory);
   });
 });
 
@@ -839,15 +937,12 @@ describe('answer resolution and scoring', () => {
     assert.equal(result.selectedCategory, laneMap[2]);
   });
 
-  test("the exact article is known after resolution ('an' stays 'an')", () => {
-    const { engine, clock } = makeEngine();
-    engine.startLevel(1);
-    answerOnce(engine, clock); // q001: "a"
-    engine.continueAfterFeedback();
-    const second = answerOnce(engine, clock); // q002: "an"
-    assert.equal(second.questionId, 'q002');
-    assert.equal(second.correctArticle, 'an');
-    assert.equal(second.completedSentence, 'She ate an apple before going to school.');
+  test('the exact canonical article is preserved after resolution', () => {
+    const trace = traceForLevel(1, 0xa11ce);
+    for (const entry of trace) {
+      assert.equal(entry.result.correctArticle, entry.article, entry.id);
+      assert.equal(entry.result.completedSentence, questionById.get(entry.id).completedSentence, entry.id);
+    }
   });
 
   test('a wrong answer scores zero, resets the streak and keeps lives untouched in Learn Mode', () => {
@@ -962,8 +1057,9 @@ describe('answer resolution and scoring', () => {
   test('attempts are recorded into long-term mastery immediately', () => {
     const { engine, clock } = makeEngine();
     engine.startLevel(1);
-    answerOnce(engine, clock); // q001 -> indefinite-first-mention
-    const mastery = engine.getMastery('indefinite-first-mention');
+    const rule = engine.getSnapshot().question.rule;
+    answerOnce(engine, clock);
+    const mastery = engine.getMastery(rule);
     assert.equal(mastery.attempts, 1);
     assert.equal(mastery.correct, 1);
     assert.equal(mastery.mastered, false);
@@ -1115,115 +1211,243 @@ describe('continueAfterFeedback and flow control', () => {
  * ====================================================================== */
 
 describe('question selection and adaptive weighting', () => {
-  test('questions never repeat within a run while unused ones remain', () => {
-    const { engine, clock } = makeEngine();
-    engine.startLevel(1);
-    const ids = [];
-    while (engine.state === GAME_STATES.PLAYING) {
-      ids.push(engine.getSnapshot().question.id);
-      answerOnce(engine, clock);
-      engine.continueAfterFeedback();
+  const assertUnique = (trace) => {
+    const ids = trace.map((entry) => entry.id);
+    assert.equal(new Set(ids).size, ids.length, `duplicate in ${ids.join(', ')}`);
+  };
+
+  const assertTargetMix = (trace, levelId) => {
+    const level = gameData.levels.find((entry) => entry.id === levelId);
+    const counts = categoryCounts(trace);
+    assert.equal(trace.length, level.questionCount);
+    for (const category of ALL_CATEGORIES) {
+      const ideal = level.categoryTargets[category] * level.questionCount;
+      assert.ok(
+        Math.abs(counts[category] - ideal) < 1,
+        `level ${levelId} ${category}: expected near ${ideal}, got ${counts[category]}`
+      );
     }
-    assert.equal(ids.length, 8);
-    assert.equal(new Set(ids).size, 8);
+  };
+
+  test('level 1 uses the exact 4/2/2 primary-dominant category mix', () => {
+    const trace = traceForLevel(1, 0x1a2b3c4d);
+    assert.deepEqual(categoryCounts(trace), {
+      none: 2,
+      definite: 2,
+      indefinite: 4,
+    });
+    assertUnique(trace);
+    assert.ok(longestCategoryRun(trace) <= 2);
   });
 
-  test('only questions matching the level rules and levelMin are eligible', () => {
-    const { engine, clock } = makeEngine();
-    engine.startLevel(4, { ignoreLock: true }); // zero-meals / zero-sports / zero-languages
-    const rules = new Set(gameData.levels[3].rules);
-    for (let i = 0; i < 5; i++) {
-      const snap = engine.getSnapshot();
-      assert.ok(rules.has(snap.question.rule), `question ${snap.question.id}`);
-      assert.ok(snap.question.levelMin <= 4);
-      answerOnce(engine, clock);
-      engine.continueAfterFeedback();
+  test('a focused level without explicit targets uses the 50/25/25 fallback', () => {
+    const data = cloneData();
+    delete data.levels[0].categoryTargets;
+    const made = makeEngine({ data, rng: seededRng(0x0fa11bac) });
+    made.engine.startLevel(1);
+    const trace = runLevelTrace(made.engine, made.clock);
+    assert.deepEqual(categoryCounts(trace), { none: 2, definite: 2, indefinite: 4 });
+    assert.ok(longestCategoryRun(trace) <= 2);
+  });
+
+  test('the wildcard mastery level uses an exact balanced 4/4/4 mix', () => {
+    const trace = traceForLevel(10, 0x5eed1234);
+    assert.deepEqual(categoryCounts(trace), {
+      none: 4,
+      definite: 4,
+      indefinite: 4,
+    });
+    assertUnique(trace);
+    assert.ok(longestCategoryRun(trace) <= 2);
+  });
+
+  test('the mixed-basics level gives meaningful representation to all three categories', () => {
+    const trace = traceForLevel(5, 0x51a5ed);
+    assert.deepEqual(categoryCounts(trace), {
+      none: 3,
+      definite: 3,
+      indefinite: 4,
+    });
+    assertUnique(trace);
+    assert.ok(longestCategoryRun(trace) <= 2);
+  });
+
+  test('each focused level keeps its configured primary category dominant', () => {
+    for (const levelId of [1, 2, 4, 6, 7, 8]) {
+      const level = gameData.levels.find((entry) => entry.id === levelId);
+      const primary = ALL_CATEGORIES.find((category) =>
+        ALL_CATEGORIES.every((other) => level.categoryTargets[category] >= level.categoryTargets[other])
+      );
+      const counts = categoryCounts(traceForLevel(levelId, 0x600d0000 + levelId));
+      for (const category of ALL_CATEGORIES) {
+        if (category !== primary) {
+          assert.ok(counts[primary] > counts[category], `level ${levelId}: ${primary} is not dominant`);
+        }
+      }
     }
   });
 
-  test('the wildcard mastery level can draw from every rule', () => {
-    const { engine, clock } = makeEngine({ rng: sequenceRng([0.02, 0.99, 0.5, 0.98]) });
-    engine.startLevel(10, { ignoreLock: true });
-    const rules = new Set();
-    for (let i = 0; i < 3; i++) {
-      rules.add(engine.getSnapshot().question.rule);
-      answerOnce(engine, clock);
-      if (i < 2) engine.continueAfterFeedback();
+  test('primary and contrast pools are the only configured focused-level sources', () => {
+    const level = gameData.levels.find((entry) => entry.id === 1);
+    const allowedRules = new Set([...level.rules, ...(level.contrastRules ?? [])]);
+    const trace = traceForLevel(1, 0x10203040);
+    for (const entry of trace) {
+      assert.ok(allowedRules.has(entry.rule), `question ${entry.id} uses unconfigured rule ${entry.rule}`);
+      assert.ok(questionById.get(entry.id).levelMin <= level.id, `question ${entry.id} exceeds levelMin`);
     }
-    assert.ok(rules.size >= 3, `expected varied rules, got ${[...rules]}`);
+  });
+
+  test('no category streak exceeds two across representative focused and mastery seeds', () => {
+    const seeds = [1, 2, 3, 7, 11, 29, 97, 0xdecafbad];
+    for (const levelId of [1, 10]) {
+      for (const seed of seeds) {
+        const trace = traceForLevel(levelId, seed);
+        assert.ok(
+          longestCategoryRun(trace) <= 2,
+          `level ${levelId}, seed ${seed}: ${trace.map((entry) => entry.category).join(', ')}`
+        );
+      }
+    }
+  });
+
+  test('seeded selection is reproducible while different seeds produce different valid sequences', () => {
+    const first = traceForLevel(1, 0x12345678);
+    const replay = traceForLevel(1, 0x12345678);
+    const second = traceForLevel(1, 0x87654321);
+    const ids = (trace) => trace.map((entry) => entry.id);
+
+    assert.deepEqual(ids(replay), ids(first));
+    assert.notDeepEqual(ids(second), ids(first));
+    for (const trace of [first, replay, second]) {
+      assert.deepEqual(categoryCounts(trace), { none: 2, definite: 2, indefinite: 4 });
+      assertUnique(trace);
+      assert.ok(longestCategoryRun(trace) <= 2);
+    }
+  });
+
+  test('weak-rule weighting boosts that rule without changing category balance', () => {
+    let neutralSelections = 0;
+    let weakSelections = 0;
+
+    for (let seed = 1; seed <= 64; seed++) {
+      const neutral = traceForLevel(4, seed, {
+        storage: seededStorage({
+          version: 1,
+          passedLevels: [],
+          levels: {},
+          mastery: {},
+          totalAttempts: 0,
+          totalCorrect: 0,
+          recentQuestions: [],
+        }),
+      });
+      const weak = traceForLevel(4, seed, {
+        storage: seededStorage({
+          version: 1,
+          passedLevels: [],
+          levels: {},
+          mastery: { 'zero-sports': { attempts: 100, correct: 5 } },
+          totalAttempts: 100,
+          totalCorrect: 5,
+          recentQuestions: [],
+        }),
+      });
+
+      neutralSelections += neutral.filter((entry) => entry.rule === 'zero-sports').length;
+      weakSelections += weak.filter((entry) => entry.rule === 'zero-sports').length;
+      assertTargetMix(weak, 4);
+      assertUnique(weak);
+      assert.ok(longestCategoryRun(weak) <= 2, `seed ${seed}`);
+    }
+
+    assert.ok(
+      weakSelections > neutralSelections,
+      `expected weak-rule boost, neutral=${neutralSelections}, weak=${weakSelections}`
+    );
+  });
+
+  test('rules below the adaptive minimum attempts behave like unseen rules', () => {
+    const seed = 0x31415926;
+    const unseen = makeEngine({ rng: seededRng(seed) });
+    unseen.engine.startLevel(4, { ignoreLock: true });
+    const belowMinimum = makeEngine({
+      rng: seededRng(seed),
+      storage: seededStorage({
+        version: 1,
+        passedLevels: [],
+        levels: {},
+        mastery: { 'zero-sports': { attempts: 2, correct: 0 } },
+        totalAttempts: 2,
+        totalCorrect: 0,
+        recentQuestions: [],
+      }),
+    });
+    belowMinimum.engine.startLevel(4, { ignoreLock: true });
+    assert.equal(belowMinimum.engine.getSnapshot().question.id, unseen.engine.getSnapshot().question.id);
+  });
+
+  test('questions never repeat within a run', () => {
+    for (const levelId of [1, 4, 10]) {
+      for (const seed of [3, 17, 41, 89]) assertUnique(traceForLevel(levelId, seed));
+    }
   });
 
   test('recent questions are avoided across runs while fresh ones remain', () => {
-    const { engine, clock } = makeEngine();
-    engine.startLevel(5, { ignoreLock: true }); // 34 eligible, 10 questions per run
-    const firstRun = [];
-    while (engine.state === GAME_STATES.PLAYING) {
-      firstRun.push(engine.getSnapshot().question.id);
-      answerOnce(engine, clock);
-      engine.continueAfterFeedback();
-    }
-    engine.startLevel(5, { ignoreLock: true }); // immediate replay
+    const { engine, clock } = makeEngine({ rng: seededRng(0xabcdef01) });
+    engine.startLevel(5, { ignoreLock: true });
+    const firstRun = runLevelTrace(engine, clock);
+    engine.startLevel(5, { ignoreLock: true });
     const nextId = engine.getSnapshot().question.id;
-    assert.ok(!firstRun.includes(nextId), `repeated ${nextId} immediately after a run`);
-  });
-
-  test('unseen rules carry neutral weight (data order with roll 0)', () => {
-    const { engine } = makeEngine({ rng: constantRng(0) });
-    engine.startLevel(1);
-    assert.equal(engine.getSnapshot().question.id, 'q001'); // first eligible in data order
-  });
-
-  test('a weak rule gets boosted weight and is picked more readily', () => {
-    const storage = seededStorage({
-      version: 1,
-      passedLevels: [1, 2, 3],
-      levels: {},
-      mastery: { 'zero-sports': { attempts: 10, correct: 1 } },
-      totalAttempts: 11,
-      totalCorrect: 1,
-      recentQuestions: [],
-    });
-    const { engine } = makeEngine({ rng: constantRng(0.75), storage });
-    engine.startLevel(4);
-    assert.equal(engine.getSnapshot().question.rule, 'zero-sports');
-  });
-
-  test('strong rules stay selectable despite adaptive weighting', () => {
-    const storage = seededStorage({
-      version: 1,
-      passedLevels: [],
-      levels: {},
-      mastery: { 'zero-sports': { attempts: 10, correct: 1 } },
-      totalAttempts: 11,
-      totalCorrect: 1,
-      recentQuestions: [],
-    });
-    const { engine } = makeEngine({ rng: constantRng(0.9), storage });
-    engine.startLevel(4, { ignoreLock: true });
-    assert.equal(engine.getSnapshot().question.rule, 'zero-languages');
-  });
-
-  test('rules below the adaptive minimum attempts keep neutral weight', () => {
-    const storage = seededStorage({
-      version: 1,
-      passedLevels: [],
-      levels: {},
-      mastery: { 'zero-sports': { attempts: 2, correct: 0 } },
-      totalAttempts: 2,
-      totalCorrect: 0,
-      recentQuestions: [],
-    });
-    const { engine } = makeEngine({ rng: constantRng(0.75), storage });
-    engine.startLevel(4, { ignoreLock: true });
-    assert.equal(engine.getSnapshot().question.rule, 'zero-languages'); // neutral order wins
+    assert.ok(!firstRun.some((entry) => entry.id === nextId), `repeated ${nextId} immediately after a run`);
   });
 
   test('the recent-question window is capped by the JSON setting', () => {
-    const { engine, clock } = makeEngine();
-    engine.startLevel(10, { ignoreLock: true }); // 12 questions, window is 10
+    const { engine, clock } = makeEngine({ rng: seededRng(0x42424242) });
+    engine.startLevel(10, { ignoreLock: true });
     runLevel(engine, clock);
     const recent = engine.getProgress().recentQuestions;
     assert.equal(recent.length, gameData.settings.recentQuestionWindow);
+  });
+
+  test('exact a/an results survive randomized selection without order assumptions', () => {
+    const seen = new Map();
+    for (let seed = 1; seed <= 32 && seen.size < 2; seed++) {
+      for (const entry of traceForLevel(1, seed)) {
+        if (entry.article === 'a' || entry.article === 'an') {
+          assert.equal(entry.result.correctArticle, entry.article, entry.id);
+          assert.equal(
+            entry.result.completedSentence,
+            questionById.get(entry.id).completedSentence,
+            entry.id
+          );
+          seen.set(entry.article, entry.id);
+        }
+      }
+    }
+    assert.ok(seen.has('a'), `no exact 'a' result found`);
+    assert.ok(seen.has('an'), `no exact 'an' result found`);
+  });
+
+  test('100 deterministic representative runs preserve balance, variety and duplicate safety', () => {
+    const signatures = new Set();
+    for (let seed = 1; seed <= 100; seed++) {
+      const levelId = seed % 2 === 0 ? 1 : 10;
+      const trace = traceForLevel(levelId, seed);
+      if (levelId === 1) {
+        assert.deepEqual(categoryCounts(trace), { none: 2, definite: 2, indefinite: 4 });
+      } else {
+        assert.deepEqual(categoryCounts(trace), { none: 4, definite: 4, indefinite: 4 });
+      }
+      assertUnique(trace);
+      assert.ok(longestCategoryRun(trace) <= 2, `level ${levelId}, seed ${seed}`);
+      assert.equal(
+        hasRepeatingCategoryPattern(trace),
+        false,
+        `level ${levelId}, seed ${seed}: repeating category block`
+      );
+      signatures.add(`${levelId}:${trace.map((entry) => entry.id).join('|')}`);
+    }
+    assert.ok(signatures.size >= 90, `only ${signatures.size} distinct sequences across 100 runs`);
   });
 });
 
@@ -1245,34 +1469,68 @@ describe('mastery tracking', () => {
   test('attempts and correct counts accumulate across a run', () => {
     const { engine, clock } = makeEngine();
     engine.startLevel(1);
-    runLevel(engine, clock, { pattern: [true, true, true, true, false, false, true, true] });
-    const fm = engine.getMastery('indefinite-first-mention'); // q001-q004
-    const jobs = engine.getMastery('indefinite-jobs'); // q005-q008
-    assert.deepEqual([fm.attempts, fm.correct], [4, 4]);
-    assert.deepEqual([jobs.attempts, jobs.correct], [4, 2]);
-    assert.equal(jobs.accuracy, 0.5);
+    const pattern = [true, true, true, true, false, false, true, true];
+    const expected = new Map();
+    let index = 0;
+    while (engine.state === GAME_STATES.PLAYING) {
+      const rule = engine.getSnapshot().question.rule;
+      const correct = pattern[index++];
+      const stats = expected.get(rule) ?? { attempts: 0, correct: 0 };
+      stats.attempts += 1;
+      stats.correct += Number(correct);
+      expected.set(rule, stats);
+      answerOnce(engine, clock, { correct });
+      engine.continueAfterFeedback();
+    }
+    for (const [rule, stats] of expected) {
+      const mastery = engine.getMastery(rule);
+      assert.deepEqual([mastery.attempts, mastery.correct], [stats.attempts, stats.correct], rule);
+      assert.equal(mastery.accuracy, stats.correct / stats.attempts, rule);
+    }
   });
 
   test('a rule is not mastered below the minimum attempt count', () => {
     const { engine, clock } = makeEngine();
     engine.startLevel(1);
-    runLevel(engine, clock); // perfect run, but only 4 attempts per rule
-    const fm = engine.getMastery('indefinite-first-mention');
-    assert.equal(fm.accuracy, 1);
-    assert.equal(fm.attempts, gameData.settings.minimumAttemptsForMastery - 1);
-    assert.equal(fm.mastered, false);
+    const trace = runLevelTrace(engine, clock);
+    const attempts = new Map();
+    for (const entry of trace) attempts.set(entry.rule, (attempts.get(entry.rule) ?? 0) + 1);
+    const [rule, count] = [...attempts].find(([, value]) => value < gameData.settings.minimumAttemptsForMastery);
+    const mastery = engine.getMastery(rule);
+    assert.equal(mastery.accuracy, 1);
+    assert.equal(mastery.attempts, count);
+    assert.equal(mastery.mastered, false);
   });
 
   test('a rule becomes mastered after enough strong attempts', () => {
-    const { engine, clock } = makeEngine();
+    const rule = gameData.levels[0].rules[0];
+    const before = gameData.settings.minimumAttemptsForMastery - 1;
+    const storage = seededStorage({
+      version: 1,
+      passedLevels: [],
+      levels: {},
+      mastery: { [rule]: { attempts: before, correct: before } },
+      totalAttempts: before,
+      totalCorrect: before,
+      recentQuestions: [],
+    });
+    const { engine, clock } = makeEngine({ storage, rng: seededRng(0x77777777) });
     engine.startLevel(1);
-    runLevel(engine, clock);
-    engine.startLevel(1);
-    runLevel(engine, clock); // second run draws the newer pool questions first (recent window)
-    const fm = engine.getMastery('indefinite-first-mention');
-    assert.equal(fm.attempts, 10); // 4 (run 1: q001-q004) + 6 (run 2 incl. q067-q068)
-    assert.equal(fm.accuracy, 1);
-    assert.equal(fm.mastered, true);
+    let found = false;
+    while (engine.state === GAME_STATES.PLAYING) {
+      const isTarget = engine.getSnapshot().question.rule === rule;
+      answerOnce(engine, clock);
+      if (isTarget) {
+        found = true;
+        break;
+      }
+      engine.continueAfterFeedback();
+    }
+    assert.equal(found, true, `no question for ${rule}`);
+    const mastery = engine.getMastery(rule);
+    assert.equal(mastery.attempts, gameData.settings.minimumAttemptsForMastery);
+    assert.equal(mastery.accuracy, 1);
+    assert.equal(mastery.mastered, true);
   });
 
   test('the mastery accuracy threshold comes from the JSON', () => {
@@ -1370,29 +1628,44 @@ describe('level completion, stars and summaries', () => {
   test('weak rules are identified for the current run', () => {
     const { engine, clock } = makeEngine();
     engine.startLevel(1);
-    // q001-q004 indefinite-first-mention all correct; q005-q006 jobs wrong
-    const { summary } = runLevel(engine, clock, { pattern: [true, true, true, true, false, false, true, true] });
-    assert.equal(summary.weakRules.length, 1);
-    assert.equal(summary.weakRules[0].rule, 'indefinite-jobs');
-    assert.equal(summary.weakRules[0].attempts, 4);
-    assert.equal(summary.weakRules[0].correct, 2);
-    assert.equal(summary.weakRules[0].accuracy, 0.5);
-    assert.equal(summary.weakRules[0].label, 'Jobs and Roles: a / an');
+    const weakRule = engine.getSnapshot().question.rule;
+    let weakAttempts = 0;
+    let summary = null;
+    while (engine.state === GAME_STATES.PLAYING) {
+      const isWeakRule = engine.getSnapshot().question.rule === weakRule;
+      weakAttempts += Number(isWeakRule);
+      answerOnce(engine, clock, { correct: !isWeakRule });
+      const step = engine.continueAfterFeedback();
+      if (step.summary) summary = step.summary;
+    }
+    const weak = summary.weakRules.find((entry) => entry.rule === weakRule);
+    assert.ok(weak, `missing weak rule ${weakRule}`);
+    assert.equal(weak.attempts, weakAttempts);
+    assert.equal(weak.correct, 0);
+    assert.equal(weak.accuracy, 0);
+    assert.equal(weak.label, gameData.ruleCatalog.find((entry) => entry.id === weakRule).label);
   });
 
   test('strong rules are never listed as weak', () => {
     const { engine, clock } = makeEngine();
     engine.startLevel(1);
-    const { summary } = runLevel(engine, clock, { pattern: [true, true, true, true, false, false, true, true] });
-    assert.ok(!summary.weakRules.some((w) => w.rule === 'indefinite-first-mention'));
+    const strongRule = engine.getSnapshot().question.rule;
+    let summary = null;
+    while (engine.state === GAME_STATES.PLAYING) {
+      const isStrongRule = engine.getSnapshot().question.rule === strongRule;
+      answerOnce(engine, clock, { correct: isStrongRule });
+      const step = engine.continueAfterFeedback();
+      if (step.summary) summary = step.summary;
+    }
+    assert.ok(!summary.weakRules.some((entry) => entry.rule === strongRule));
   });
 
   test('multiple weak rules are sorted weakest first', () => {
     const { engine, clock } = makeEngine();
     engine.startLevel(1);
-    const { summary } = runLevel(engine, clock, { pattern: [false, false, true, true, false, false, true, true] });
-    const rules = summary.weakRules.map((w) => w.rule);
-    assert.deepEqual(rules, ['indefinite-first-mention', 'indefinite-jobs']); // tie -> id order
+    const { summary } = runLevel(engine, clock, { pattern: Array(8).fill(false) });
+    assert.ok(summary.weakRules.length >= 2);
+    assert.equal(new Set(summary.weakRules.map((entry) => entry.rule)).size, summary.weakRules.length);
     for (let i = 1; i < summary.weakRules.length; i++) {
       assert.ok(summary.weakRules[i - 1].accuracy <= summary.weakRules[i].accuracy);
     }
@@ -1549,7 +1822,10 @@ describe('persistence and storage', () => {
     assert.ok(raw, 'progress JSON must be written');
     const parsed = JSON.parse(raw);
     assert.equal(parsed.levels['1'].completions, 1);
-    assert.equal(parsed.mastery['indefinite-first-mention'].attempts, 4);
+    assert.equal(
+      Object.values(parsed.mastery).reduce((total, mastery) => total + mastery.attempts, 0),
+      gameData.levels[0].questionCount
+    );
     assert.deepEqual(parsed.passedLevels, [1]);
   });
 
@@ -1563,7 +1839,7 @@ describe('persistence and storage', () => {
     const progress = second.engine.getProgress();
     assert.equal(progress.highestUnlockedLevel, 2);
     assert.equal(progress.levels['1'].bestStars, 3);
-    assert.equal(second.engine.getMastery('indefinite-first-mention').attempts, 4);
+    assert.deepEqual(progress.mastery, first.engine.getProgress().mastery);
     second.engine.startLevel(2); // unlocked by the previous engine
     assert.equal(second.engine.state, GAME_STATES.PLAYING);
   });
@@ -1619,13 +1895,15 @@ describe('persistence and storage', () => {
     engine.startLevel(1);
     runLevel(engine, clock);
     const progress = engine.getProgress();
+    const masteryRule = Object.keys(progress.mastery)[0];
+    const originalAttempts = progress.mastery[masteryRule].attempts;
     progress.levels['1'].bestStars = 99;
-    progress.mastery['indefinite-first-mention'].attempts = 999;
+    progress.mastery[masteryRule].attempts = 999;
     progress.passedLevels.push(42);
     progress.unlockedLevels.push(42);
     const fresh = engine.getProgress();
     assert.equal(fresh.levels['1'].bestStars, 3);
-    assert.equal(fresh.mastery['indefinite-first-mention'].attempts, 4);
+    assert.equal(fresh.mastery[masteryRule].attempts, originalAttempts);
     assert.deepEqual(fresh.passedLevels, [1]);
     assert.deepEqual(fresh.unlockedLevels, [1, 2]);
   });
@@ -1713,6 +1991,7 @@ describe('pause and resume', () => {
   test('time spent paused does not count as response time', () => {
     const { engine, clock } = makeEngine();
     engine.startLevel(1);
+    engine.chooseCategory(correctCategoryFor(engine.getSnapshot().question.id));
     clock.advance(2000);
     engine.pause();
     clock.advance(60000); // long pause menu visit
@@ -1806,7 +2085,8 @@ describe('event system', () => {
     assert.equal(correct.length, 4);
     assert.equal(wrong.length, 4);
     assert.equal(resolved.length, 8);
-    assert.equal(correct[0].questionId, 'q001');
+    assert.ok(questionById.has(correct[0].questionId));
+    assert.equal(correct[0].questionId, resolved[0].questionId);
     assert.equal(typeof wrong[0].pointsGained, 'number');
     assert.ok(resolved.every((r) => typeof r.isCorrect === 'boolean'));
   });
@@ -1914,22 +2194,23 @@ describe('determinism and dependency injection', () => {
     assert.deepEqual(mapsA, mapsB);
   });
 
-  test('different rng values produce different question sequences', () => {
-    const first = makeEngine({ rng: constantRng(0) });
-    first.engine.startLevel(1);
-    const second = makeEngine({ rng: constantRng(0.99) });
-    second.engine.startLevel(1);
-    const idA = first.engine.getSnapshot().question.id;
-    const idB = second.engine.getSnapshot().question.id;
-    assert.equal(idA, 'q001');
-    assert.equal(idB, 'q070'); // last eligible question in data order (12-question pool)
-    assert.notEqual(idA, idB);
+  test('different seeded rng values produce different valid question sequences', () => {
+    const first = traceForLevel(10, 0x11111111);
+    const second = traceForLevel(10, 0x99999999);
+    const idsA = first.map((entry) => entry.id);
+    const idsB = second.map((entry) => entry.id);
+    assert.notDeepEqual(idsA, idsB);
+    assert.equal(new Set(idsA).size, idsA.length);
+    assert.equal(new Set(idsB).size, idsB.length);
+    assert.deepEqual(categoryCounts(first), { none: 4, definite: 4, indefinite: 4 });
+    assert.deepEqual(categoryCounts(second), { none: 4, definite: 4, indefinite: 4 });
   });
 
   test('an injected clock controls timing without real delays', () => {
     const clock = createClock(5000);
     const { engine } = makeEngine({ clock });
     engine.startLevel(1);
+    engine.chooseCategory(correctCategoryFor(engine.getSnapshot().question.id));
     clock.advance(800);
     const result = engine.submitCurrentLane();
     assert.equal(result.responseMs, 800);
