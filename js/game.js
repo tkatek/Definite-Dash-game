@@ -264,6 +264,41 @@ const WORLD_MOTION = {
   reducedFactor: 0.7,
 };
 
+/** Sparse bonus collectibles. These values intentionally live in one place:
+ * coins are a brief surprise between learning decisions, never a road trail. */
+const COIN_CONFIG = Object.freeze({
+  assetPath: 'assets/ui/coin-star.png',
+  minCooldownMs: 7000,
+  maxCooldownMs: 14000,
+  secondCoinChance: 0.25,
+  sameLaneSecondChance: 0.65,
+  maxActiveCoins: 2,
+  stopSpawnAtGateProgress: 0.58,
+  questionGraceMs: 2600,
+  resumeGraceMs: 2400,
+  spawnDepth: 0.28,
+  secondCoinDepthGap: 0.2,
+  gateDepthClearance: 0.14,
+  collectionStart: 0.86,
+  collectionEnd: 1.05,
+  despawnDepth: 1.14,
+  flightDurationMs: 500,
+  sparkCount: 6,
+  baseSizeMinPx: 58,
+  mobileBaseSizeMinPx: 64,
+  baseSizeMaxPx: 78,
+  baseSizeRatio: Object.freeze({ desktop: 0.05, tablet: 0.09, mobile: 0.17 }),
+});
+
+const coinSystem = {
+  pool: [],
+  nextSpawnMs: Number.POSITIVE_INFINITY,
+  collected: 0,
+  displayed: 0,
+  effects: new Set(),
+  flights: new Set(),
+};
+
 const world = {
   built: false,
   W: 0,
@@ -544,12 +579,14 @@ function bindEngineEvents() {
   });
   engine.on('level:started', (payload) => {
     logEvent('level:started', payload);
+    resetCoinSession();
     resetPlayerAnimation(); // only a new/restarted level restarts the gait
     clearStartNote();
     renderHUD();
   });
   engine.on('question:loaded', (payload) => {
     logEvent('question:loaded', payload);
+    deferCoinSpawn(COIN_CONFIG.questionGraceMs);
     renderQuestion(payload);
   });
   engine.on('player:lane-changed', (payload) => {
@@ -578,7 +615,10 @@ function bindEngineEvents() {
     renderGameOver(payload.summary);
   });
   engine.on('game:paused', () => logEvent('game:paused'));
-  engine.on('game:resumed', () => logEvent('game:resumed'));
+  engine.on('game:resumed', () => {
+    logEvent('game:resumed');
+    deferCoinSpawn(COIN_CONFIG.resumeGraceMs);
+  });
   engine.on('progress:reset', () => {
     logEvent('progress:reset');
     renderLevelList();
@@ -640,6 +680,7 @@ const screens = {
 };
 
 function showScreen(name) {
+  if (currentScreen === 'game' && name !== 'game') endCoinSession();
   currentScreen = name;
   for (const [key, element] of Object.entries(screens)) {
     element.classList.toggle('hidden', key !== name);
@@ -659,6 +700,7 @@ function showScreen(name) {
 function renderPause(visible) {
   const wasHidden = dom.overlayPause.classList.contains('hidden');
   dom.overlayPause.classList.toggle('hidden', !visible);
+  dom.screenGame.classList.toggle('is-coin-paused', visible);
   if (visible && wasHidden) {
     pauseReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     requestAnimationFrame(() => dom.btnResume.focus());
@@ -685,13 +727,24 @@ function renderPause(visible) {
 /** What the HUD last painted — used ONLY to trigger change animations.
  *  Never read as gameplay state; the engine snapshot stays the single
  *  source of truth for every value shown here. */
-const hudPainted = { score: null, streak: null };
+const hudPainted = { streak: null };
 
 /** Restart a one-shot animation class on an element. */
 function retriggerAnimation(el, className) {
   el.classList.remove(className);
   void el.offsetWidth; // flush so the class removal takes effect
   el.classList.add(className);
+}
+
+function renderCoinHud(pulse = false) {
+  const count = coinSystem.displayed;
+  dom.hudScore.textContent = `${count}`;
+  dom.hudScorePill.title = 'Bonus coins';
+  dom.hudScorePill.setAttribute(
+    'aria-label',
+    `${count} bonus coin${count === 1 ? '' : 's'}`,
+  );
+  if (pulse) retriggerAnimation(dom.hudScorePill, 'hud-coin--pulse');
 }
 
 const HEART_SVG =
@@ -762,12 +815,9 @@ function renderHUD() {
   if (dom.hudLevelProgressFill) dom.hudLevelProgressFill.style.width = `${levelProgress}%`;
   renderHUDSegments(answeredIndex, snap.session.totalQuestions);
 
-  dom.hudScore.textContent = `${snap.score}`;
-  dom.hudScorePill.setAttribute('aria-label', `Score ${snap.score} points`);
-  if (hudPainted.score !== null && hudPainted.score !== snap.score) {
-    retriggerAnimation(dom.hudScorePill, 'is-pulse');
-  }
-  hudPainted.score = snap.score;
+  // The existing gold pill is the session-only bonus coin counter. Engine
+  // score remains untouched and is still reported on result screens.
+  renderCoinHud();
 
   dom.hudStreak.textContent = `${snap.streak}`;
   dom.hudStreakPill.setAttribute('aria-label', `Streak ${snap.streak}`);
@@ -1083,6 +1133,8 @@ function buildRoadWorld() {
     el.style.opacity = '0';
     world.dusts.push({ el, depth: 0, m: 0, born: 0, size: randRange(0.6, 1.3) });
   }
+
+  buildCoinPool(layer);
 }
 
 /**
@@ -1193,6 +1245,18 @@ function rebuildWorldGeometry() {
     p.el.style.width = `${(dustBase * p.size).toFixed(1)}px`;
     p.el.style.height = `${(dustBase * p.size).toFixed(1)}px`;
   });
+  const coinRatio = COIN_CONFIG.baseSizeRatio[sceneGeo.layout] ?? COIN_CONFIG.baseSizeRatio.desktop;
+  const coinMin = sceneGeo.layout === 'mobile'
+    ? COIN_CONFIG.mobileBaseSizeMinPx
+    : COIN_CONFIG.baseSizeMinPx;
+  const coinBase = Math.min(
+    COIN_CONFIG.baseSizeMaxPx,
+    Math.max(coinMin, world.W * coinRatio),
+  );
+  coinSystem.pool.forEach((coin) => {
+    coin.el.style.width = `${coinBase.toFixed(1)}px`;
+    coin.el.style.height = `${coinBase.toFixed(1)}px`;
+  });
 
   renderWorldStatic();
   renderLaneGuides();
@@ -1292,6 +1356,7 @@ function renderWorldStatic() {
   for (const pa of world.patches) renderPatch(pa);
   for (const t of world.tufts) renderTuft(t);
   for (const p of world.dusts) renderDust(p);
+  for (const coin of coinSystem.pool) renderCoin(coin);
 }
 
 function setLayerZ(el, depth) {
