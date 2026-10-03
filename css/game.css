@@ -624,9 +624,9 @@ body.debug .answer-gate .gate-key {
 .hud {
   --hud-scale: 1;
   width: min(100%, 1640px);
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
   gap: 18px;
 }
 
@@ -636,6 +636,10 @@ body.debug .answer-gate .gate-key {
   gap: 12px;
   min-width: 0;
 }
+
+.hud-group--main { justify-self: start; }
+.hud-group--stats { justify-self: end; }
+.hud-pill--progress { justify-self: center; }
 
 .hud-pause,
 .hud-pill {
@@ -716,7 +720,7 @@ body.debug .answer-gate .gate-key {
 }
 
 .hud-pill--level { width: calc(230px * var(--hud-scale)); }
-.hud-pill--progress { width: calc(220px * var(--hud-scale)); }
+.hud-pill--progress { width: calc(350px * var(--hud-scale)); }
 .hud-pill--score { min-width: calc(135px * var(--hud-scale)); justify-content: center; }
 .hud-pill--streak { min-width: calc(172px * var(--hud-scale)); justify-content: center; }
 .hud-pill--lives { min-width: calc(168px * var(--hud-scale)); justify-content: center; }
@@ -1157,7 +1161,7 @@ body.debug .answer-gate .gate-key {
   .hud { --hud-scale: 0.78; gap: 10px; }
   .hud-group { gap: 7px; }
   .hud-pill--level { width: calc(190px * var(--hud-scale)); }
-  .hud-pill--progress { width: calc(190px * var(--hud-scale)); }
+  .hud-pill--progress { width: calc(230px * var(--hud-scale)); }
 
   .sentence-wrap {
     width: min(72vw, 760px);
@@ -1198,9 +1202,7 @@ body.debug .answer-gate .gate-key {
 
   .runner { --scene-horizon-y: 42%; }
 
-  .hud { flex-wrap: wrap; justify-content: center; }
-  .hud-group--main,
-  .hud-group--stats { justify-content: center; }
+  .hud { justify-content: center; }
 }
 
 /* ========================================================================== 
@@ -1239,29 +1241,63 @@ body.debug .answer-gate .gate-key {
 
   .hud {
     --hud-scale: 0.62;
-    flex-wrap: wrap;
-    justify-content: center;
+    grid-template-columns: auto 86px minmax(0, 1fr);
+    grid-template-rows: 35px 35px;
+    gap: 3px 4px;
+  }
+
+  .hud-group--main {
+    grid-column: 1;
+    grid-row: 1 / 3;
     gap: 4px;
   }
 
-  .hud-group {
+  .hud-group--stats {
     width: 100%;
-    justify-content: center;
-    gap: 5px;
+    height: 73px;
+    display: grid;
+    grid-column: 3;
+    grid-row: 1 / 3;
+    grid-template-columns: minmax(0, 1.06fr) minmax(0, 0.94fr);
+    grid-template-rows: 35px 35px;
+    gap: 3px;
+    justify-self: stretch;
   }
 
-  .hud-pause { width: 44px; height: 44px; }
+  .hud-pill--progress {
+    grid-column: 2;
+    grid-row: 1 / 3;
+    align-self: center;
+  }
+
+  .hud-pause { width: 38px; height: 48px; }
 
   .hud-pill {
     min-height: 43px;
     border-width: 1.5px;
   }
 
-  .hud-pill--level { width: 112px; }
-  .hud-pill--progress { width: 132px; }
-  .hud-pill--score { min-width: 82px; }
-  .hud-pill--streak { min-width: 100px; }
-  .hud-pill--lives { min-width: 103px; }
+  .hud-pill--level { width: 91px; height: 48px; padding-inline: 7px; }
+  .hud-pill--progress { width: 86px; height: 48px; padding-inline: 7px; }
+  .hud-pill--score {
+    min-width: 0;
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: stretch;
+  }
+  .hud-pill--streak {
+    min-width: 0;
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: stretch;
+  }
+  .hud-pill--lives {
+    min-width: 0;
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: stretch;
+  }
+  .hud-group--stats > .hud-pill { min-height: 35px; padding: 4px 6px; }
   .hud-pill__text { font-size: 0.76rem; }
   .hud-pill__text--strong,
   .hud-pill__value { font-size: 0.86rem; }
@@ -1372,11 +1408,10 @@ body.debug .answer-gate .gate-key {
 
 @media (max-width: 360px) {
   .hud { --hud-scale: 0.57; }
-  .hud-pill--level { width: 101px; }
-  .hud-pill--progress { width: 118px; }
-  .hud-pill--score { min-width: 74px; }
-  .hud-pill--streak { min-width: 90px; }
-  .hud-pill--lives { min-width: 94px; }
+  .hud { grid-template-columns: auto 78px minmax(0, 1fr); }
+  .hud-pause { width: 35px; }
+  .hud-pill--level { width: 84px; }
+  .hud-pill--progress { width: 78px; }
   .sentence-wrap { min-height: 84px; }
   .sentence { font-size: 1.05rem; }
   .sentence-instruction { font-size: 0.7rem; }
