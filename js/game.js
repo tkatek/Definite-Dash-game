@@ -80,8 +80,18 @@ const CATEGORY_LABELS = {
  * coordinates per layout.
  */
 const RUNNER_GEO = {
-  farScale: 0.28,
-  nearScale: 1.0,
+  /**
+   * Gate scale is PERSPECTIVE-TRUE: it rides the road's own width ratio
+   * (half(t)/nearHalf — the same curve every dash, stone and tuft follows),
+   * so a distant gate can never be wider than the distant road and a near
+   * gate grows exactly as fast as its lane spreads. floorFar/floorNear add
+   * a gentle readability floor BELOW that curve so labels stay legible at
+   * distance; WORLD_LAYOUTS may override them per device class
+   * (farGateScale / nearGateScale). The floor never binds near the camera,
+   * where the true perspective size is larger.
+   */
+  floorFar: 0.15,
+  floorNear: 0.62,
   farOpacity: 0.72,
   /** Visual size in px below which labels get a counter-scale boost. */
   minLabelPx: 11,
@@ -89,171 +99,199 @@ const RUNNER_GEO = {
 };
 
 /* ------------------------------------------------------------------------
- * World-motion system — the perspective road (visual only)
+ * World-motion system — the coded perspective road (visual only)
  * ------------------------------------------------------------------------
  * One projection drives every world object. A normalized DEPTH value maps
- * onto the same painted road the scene artwork shows:
+ * onto the code-built road between the two scenery pieces:
  *
- *   depth 0    → the road's vanishing point (painted horizon row)
+ *   depth 0    → the road's vanishing point (--scene-horizon-y)
  *   depth 1    → the gate collision plane (CSS --scene-collision-y)
  *   depth > 1  → between the collision plane and the camera
  *
- * y(depth) is affine in depth, and every ground line (lane centers, painted
- * dividers, road edges) is straight through the vanishing point, so an
- * object's x is just slope · Δy and its scale is depth itself — exactly the
- * pinhole relation size ∝ 1/Z. Because of that, world flow follows the
- * perspective ODE d(depth)/dt = a·depth²: objects barely creep near the
- * horizon and rush as they pass the camera, which is what sells forward
- * motion. Gates reuse the SAME projection: gateProgress (the engine's
- * clock) is eased onto depth with the hyperbolic curve derived from a fixed
- * checkpoint approached at constant speed, D(p) = r / (1 − p·(1−r)), so a
- * gate reads as standing on the road while the camera closes in — then
- * slides past the fox at collision instead of hitting it.
+ * t = depth^pEase is the perspective easing: y, scale and the road's local
+ * half-width are all affine in t, so every ground line (lane centers, lane
+ * dividers, road edges) is straight through one shared vanishing point and
+ * lane geometry is scale-invariant along the road (a lane keeps the same
+ * share of the road's width at every depth).
+ *
+ * Road props (dashes, stones, tufts, dust) advance LINEARLY in depth —
+ * depth += worldSpeed·Δt — and wrap with `if (depth ≥ cycle) depth -= cycle`,
+ * which keeps their spacing perfectly even forever while the t-easing makes
+ * them creep near the horizon and rush past the camera. Gates ride the SAME
+ * projection: their depth IS the engine's gateProgress during PLAYING, so a
+ * gate reaches the collision plane exactly when the engine resolves, then
+ * passes the fox (depth > 1, growing and fading) instead of hitting it.
  *
  * All road objects are pooled DOM nodes animated with transforms only and
  * recycled near the horizon; nothing is created or destroyed during play.
  * ---------------------------------------------------------------------- */
 
 /**
- * Artwork rail geometry, measured in IMAGE space from the approved paintings
- * by pixel-scanning the painted divider stripes. The painted dividers bow
- * outward mid-road (a stylized fisheye road), so each is fit with a
- * quadratic through the vanishing point:
+ * World layouts — per device class, keyed by the CSS --scene-layout custom
+ * property (same 680px/1200px breakpoints the lane anchors use). Horizon,
+ * collision line and lane anchors live in CSS (readSceneGeo()); this table
+ * adds what CSS can't express:
  *
- *   offset(Δy) = dividerA·Δy + dividerB·Δy²     (Δy = distance below horizon)
- *
- * The same curve family, scaled, gives the lane rails for gates/stones
- * (they must land on the CSS lane anchors at the collision plane) and the
- * road-edge rails for tufts (edgeScale ≈ where the painted edge sits at the
- * collision plane, in units of the divider offset). Cover-crop factors
- * convert everything to screen space per layout in rebuildWorldGeometry(),
- * so the moving overlays sit exactly on the painted stripes for any runner
- * aspect ratio. Also: painted dash proportions and the road tone the
- * divider masks repaint.
+ *   farHalf / nearHalf  road half-width as a runner-width fraction at the
+ *                       vanishing point and at the bottom (collision plane
+ *                       and beyond extrapolate the same line)
+ *   pEase               perspective easing exponent (t = depth^pEase)
+ *   roadShoulder        soft grass rim beyond the sand (grows toward camera)
+ *   sceneryW/Mode       side-scenery sizing: 'fit' preserves the artwork's
+ *                       aspect anchored to the bottom edge; 'cover' fills a
+ *                       full-height box with the road-side strip of the art
+ *   dashW0/dashAspect   lane-marker size at the collision plane
+ *   stones/tufts        pooled prop counts (dashes are fixed at 8 per line)
  */
-const WORLD_ART = {
+const WORLD_LAYOUTS = {
   desktop: {
-    aspect: 1672 / 941,
-    dividerA: 0.482,
-    dividerB: -0.264,
-    edgeA: 0.775, // road-edge rail: offset(Δy) = kx·edgeA·(Δy/ky)^edgePow
-    edgePow: 0.636,
-    dashAspect: 2.3, // painted dash length / width
-    dashW0: 0.026, // moving dash width at the collision plane (fraction of runner width)
-    maskHalf1: 0.026, // mask half-width at y = 100% (covers the painted stripe)
-    maskTopY: 0.615, // painted dashes begin here; above it the mask would show on the bright road
-    toneTop: '#fcc376',
-    toneBottom: '#f9bc6a',
+    farHalf: 0.036,
+    nearHalf: 0.45,
+    pEase: 1.75,
+    roadShoulder: 0.02,
+    sceneryW: 0.4,
+    sceneryMode: 'fit',
+    dashesPerLine: 10,
+    dashW0: 0.02,
+    dashAspect: 2.6,
+    stones: 14,
+    patches: 3,
+    tufts: 9,
+    // road surface finishing (see ROAD_TEXTURE): edge-wear band width as a
+    // share of the road's local half-width, 0 disables the band
+    wearW: 0.16,
+    grain: 0.5,
   },
   tablet: {
-    aspect: 1448 / 1086,
-    dividerA: 0.542,
-    dividerB: -0.291,
-    edgeA: 0.839,
-    edgePow: 0.632,
-    dashAspect: 2.4,
-    dashW0: 0.025,
-    maskHalf1: 0.027,
-    maskTopY: 0.605,
-    toneTop: '#fcc276',
-    toneBottom: '#f9ba68',
+    farHalf: 0.032,
+    nearHalf: 0.42,
+    pEase: 1.75,
+    roadShoulder: 0.022,
+    sceneryW: 0.42,
+    sceneryMode: 'fit',
+    dashesPerLine: 10,
+    dashW0: 0.024,
+    dashAspect: 2.7,
+    stones: 12,
+    patches: 3,
+    tufts: 8,
+    wearW: 0.16,
+    grain: 0.5,
   },
   mobile: {
-    aspect: 941 / 1672,
-    dividerA: 0.739,
-    dividerB: -0.263,
-    edgeA: 1.168,
-    edgePow: 0.63,
-    dashAspect: 3.2,
-    dashW0: 0.048,
-    maskHalf1: 0.042,
-    maskTopY: 0.455,
-    toneTop: '#fcc478',
-    toneBottom: '#f9bd68',
+    // Phone portrait is its own composition, not a shrunken desktop: the
+    // road dominates (88% of the width at the bottom), the horizon stays
+    // wide enough for three readable gates, and the side artworks become
+    // small cropped landmark strips that frame the road instead of
+    // flanking it as two full-height posters.
+    farHalf: 0.095,
+    nearHalf: 0.44,
+    pEase: 1.55,
+    roadShoulder: 0.024,
+    sceneryW: 0.17,
+    sceneryH: 0.58,
+    sceneryMode: 'cover',
+    // Landmark-centered crops measured from the approved artwork:
+    // left = waterfall (center-right, upper) + stone bridge; right =
+    // windmill (center-left) + hay bale.
+    sceneryPos: { left: '62% 28%', right: '45% 38%' },
+    // Reference: big readable boards for most of the approach, planted on
+    // the lane at arrival — never tiny at spawn, never gigantic up close.
+    farGateScale: 0.52,
+    nearGateScale: 1.0,
+    dashesPerLine: 9,
+    dashW0: 0.036,
+    dashAspect: 3.0,
+    stones: 10,
+    patches: 2,
+    tufts: 6,
+    wearW: 0.14,
+    grain: 0.45,
   },
+};
+
+/**
+ * Road surface finishing — one central place for the "richness" knobs.
+ * The wear bands (soft darkening along both road edges, drawn by
+ * drawCodedRoad as clipped polygons) and the sand grain (an inline SVG
+ * turbulence layer on .road-surface) are subtle on purpose: they add
+ * depth cues, never clutter. Set grain to 0 for a perfectly flat road.
+ */
+const ROAD_TEXTURE = {
+  /** wear band peak alpha at the road edge, fading to 0 inward. */
+  wearAlpha: 0.22,
+  /** grain tile size in px (bigger = softer speckle). */
+  grainSize: 170,
 };
 
 /** Motion tuning for the world layer (visual only — never gameplay). */
 const WORLD_MOTION = {
-  /** Gate spawn depth per layout: small fraction of the collision distance. */
-  easeR: { desktop: 0.22, tablet: 0.24, mobile: 0.26 },
-  /** Road-flow coefficient a = speedPerGate · level.speed (clamped). */
-  speedPerGate: 26,
-  speedMin: 1.6,
-  speedMax: 2.6,
-  /** World slow-motion during feedback: correct keeps trotting, wrong hesitates. */
-  crawlCorrect: 0.45,
+  /** worldSpeed (depth units/s) = speedPerGate / gateDurationS, clamped. */
+  speedPerGate: 6.4,
+  speedMin: 0.44,
+  speedMax: 0.62,
+  /** feedback: brief full-speed burst, then the world settles to a crawl. */
+  burstS: 0.22,
+  crawlCorrect: 0.22,
   crawlWrong: 0.15,
-  /** Road objects recycle once their ground line passes this y fraction. */
-  yExit: 1.04,
+  /** gates sweep past the camera this much faster than the road flows. */
+  gatePassBoost: 3.2,
+  /** road props recycle once their ground line passes this y fraction. */
+  yExit: 1.05,
   dustEveryMs: 95,
-  reducedFactor: 0.55,
+  reducedFactor: 0.7,
 };
 
 const world = {
   built: false,
   W: 0,
   H: 0,
-  a: 1.7, // perspective flow coefficient (per second)
-  crawl: 1, // feedback slow-motion factor
-  yVp: 0.426,
+  speed: 0.5, // linear depth advance per second (worldSpeed)
+  crawl: 1, // settled feedback slow-motion factor
+  feedbackT: 0, // seconds since the gate crossed the collision plane
+  yVp: 0.44,
   yCol: 0.86,
-  laneHalf: 0.31,
-  laneSpanY: 0.434, // yCol − yVp, cached
-  divA: 0.482, // screen-space quadratic rail: offset(Δy) = divA·Δy + divB·Δy²
-  divB: -0.264,
-  divBase: 0.367, // rail value at the collision plane (spread normalizer)
-  edgeA: 0.775, // road-edge rail (screen space, incl. cover factors)
-  edgePow: 0.636,
-  masks: [],
+  laneSpanY: 0.42, // yCol − yVp, cached
+  laneHalf: 0.31, // |lane anchor − 0.5| in runner-width fractions
+  farHalf: 0.036,
+  nearHalf: 0.45,
+  laneFrac: 0.69, // laneHalf / nearHalf — lane position as share of road width
+  pEase: 1.75,
+  divAngle: [-7, 7], // straight divider-rail tilt per side (deg)
+  cycle: 1.24, // depth wrap length (ground line exits past the bottom)
   dashes: [],
   stones: [],
+  patches: [],
   tufts: [],
   dusts: [],
   dustIdx: 0,
   dustTimer: 0,
-  gate: { depth: 0, r: 0.22, spawnFade: 1 },
+  gate: { depth: 0, spawnFade: 1 },
 };
 
-/** Painted-divider rail offset at Δy below the horizon (screen fractions). */
-function railOffset(dy) {
-  return world.divA * dy + world.divB * dy * dy;
+/** Perspective easing: depth → t (0 horizon, 1 collision plane, >1 past us). */
+function easeDepth(depth) {
+  return Math.pow(Math.max(depth, 0.0001), world.pEase);
 }
 
 /**
- * Lane-rail spread factor at depth D (exactly 1 at the collision plane,
- * where gates must land on the CSS lane anchors). Uses the measured rail
- * curve so gates/stones track the painted lanes' outward bow mid-road:
- * spread(D) = family(D·L)/family(L) = D·(divA + divB·D·L)/(divA + divB·L).
+ * THE single perspective helper: normalized depth + continuous lane →
+ * screen point. Lane −1/0/+1 are the three answer lanes (they land exactly
+ * on the CSS --lane-x-* anchors at depth 1, where the engine resolves
+ * collisions); ±0.5 are the lane dividers; ±1/laneFrac is the road's edge.
+ * `scale` is the true perspective size ratio (road-width-proportional) for
+ * objects lying ON the road; standing billboards like gates use their own
+ * readability floor in RUNNER_GEO with the same t.
  */
-function laneSpread(depth) {
-  return (depth * (world.divA + world.divB * depth * world.laneSpanY)) / world.divBase;
-}
-
-/** The single perspective helper: depth + continuous lane → screen point. */
-function projectRoadPoint(depth, lane) {
-  const y = world.yVp + depth * world.laneSpanY;
-  const x = 0.5 + lane * world.laneHalf * laneSpread(depth);
-  return { x: x * world.W, y: y * world.H, scale: depth };
-}
-
-/** Same projection for the painted divider rails (and edges, scaled). */
-function edgeRailX(depth, side) {
-  const dy = depth * world.laneSpanY;
-  const y = world.yVp + dy;
-  const x = 0.5 + side * world.edgeA * Math.pow(dy, world.edgePow);
-  return { x: x * world.W, y: y * world.H, scale: depth };
-}
-
-/** Perspective ODE step: how fast a fixed world point flows toward us. */
-function flowDepth(depth, dt, coeff) {
-  return depth + coeff * depth * depth * dt;
-}
-
-/** gateProgress → depth on the shared projection (r = spawn depth). */
-function gateEase(p) {
-  const r = world.gate.r;
-  return r / (1 - p * (1 - r));
+function projectRoadPoint(depth, lane = 0) {
+  const t = easeDepth(depth);
+  const half = world.farHalf + (world.nearHalf - world.farHalf) * t;
+  return {
+    x: 0.5 + lane * world.laneFrac * half,
+    y: world.yVp + t * world.laneSpanY,
+    scale: half / world.nearHalf,
+    t,
+  };
 }
 
 const dom = {
@@ -265,8 +303,14 @@ const dom = {
   // start screen
   screenStart: document.getElementById('screen-start'),
   btnPlay: document.getElementById('btn-play'),
+  btnPlayLabel: document.getElementById('btn-play-label'),
   btnModeLearn: document.getElementById('btn-mode-learn'),
   btnModeArcade: document.getElementById('btn-mode-arcade'),
+  btnLevels: document.getElementById('btn-levels'),
+  heroProgress: document.getElementById('hero-progress'),
+  levelModal: document.getElementById('level-modal'),
+  btnLevelsClose: document.getElementById('btn-levels-close'),
+  levelModalProgress: document.getElementById('level-modal-progress'),
   levelList: document.getElementById('level-list'),
   startNote: document.getElementById('start-note'),
   btnResetProgress: document.getElementById('btn-reset-progress'),
@@ -275,8 +319,12 @@ const dom = {
   screenGame: document.getElementById('screen-game'),
   hudLevel: document.getElementById('hud-level'),
   hudQuestion: document.getElementById('hud-question'),
+  hudProgress: document.getElementById('hud-progress'),
+  hudProgressFill: document.getElementById('hud-progress-fill'),
   hudScore: document.getElementById('hud-score'),
+  hudScorePill: document.getElementById('hud-score-pill'),
   hudStreak: document.getElementById('hud-streak'),
+  hudStreakPill: document.getElementById('hud-streak-pill'),
   hudLives: document.getElementById('hud-lives'),
   btnPause: document.getElementById('btn-pause'),
   sentence: document.getElementById('sentence'),
@@ -427,7 +475,8 @@ async function init() {
   bindUiEvents();
   preloadRunFrames(); // concurrent, non-blocking: decode can stall in occluded tabs
   preloadGateArt(); // warm the 3 gate images once; reused from cache afterwards
-  preloadSceneImage(); // warm the active breakpoint's environment painting
+  // (the two scenery PNGs are plain <img> tags in #runner — the browser
+  // fetches and decodes them at page load, before the game screen shows)
   renderLevelList();
   showScreen('start');
   startLoop();
@@ -567,6 +616,48 @@ function renderPause(visible) {
  *     (visual pass: restyle here; data always comes from the snapshot)
  * ====================================================================== */
 
+/** What the HUD last painted — used ONLY to trigger change animations.
+ *  Never read as gameplay state; the engine snapshot stays the single
+ *  source of truth for every value shown here. */
+const hudPainted = { score: null, streak: null };
+
+/** Restart a one-shot animation class on an element. */
+function retriggerAnimation(el, className) {
+  el.classList.remove(className);
+  void el.offsetWidth; // flush so the class removal takes effect
+  el.classList.add(className);
+}
+
+const HEART_SVG =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+  '<path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>';
+
+/** Paint the hearts row: filled for remaining lives, dimmed for lost ones.
+ *  Hearts are rebuilt only when the maximum changes (mode/level switch), so
+ *  a lost heart can animate in place on the next render. */
+function renderHUDHearts(lives, max) {
+  const wrap = dom.hudLives;
+  if (wrap.children.length !== max) {
+    wrap.replaceChildren(
+      ...Array.from({ length: max }, () => {
+        const heart = document.createElement('span');
+        heart.className = 'hud-heart';
+        heart.innerHTML = HEART_SVG;
+        return heart;
+      }),
+    );
+  }
+  [...wrap.children].forEach((heart, index) => {
+    const isFull = index < lives;
+    const wasFull = heart.classList.contains('is-full');
+    heart.classList.toggle('is-full', isFull);
+    heart.classList.toggle('is-lost', !isFull);
+    if (wasFull && !isFull) {
+      retriggerAnimation(heart, 'just-lost'); // this heart just broke
+    }
+  });
+}
+
 function renderHUD() {
   const snap = engine.getSnapshot();
   if (!snap.session) return;
@@ -578,15 +669,27 @@ function renderHUD() {
       ? snap.lastResult.questionIndex
       : snap.session.questionIndex + 1;
   dom.hudQuestion.textContent = `${answeredIndex} / ${snap.session.totalQuestions}`;
+  dom.hudProgress.setAttribute('aria-label', `Question ${answeredIndex} of ${snap.session.totalQuestions}`);
+  dom.hudProgressFill.style.width = `${Math.round((answeredIndex / snap.session.totalQuestions) * 100)}%`;
 
-  dom.hudScore.textContent = `${snap.score} pts`;
-  dom.hudStreak.textContent = `Streak ${snap.streak}`;
+  dom.hudScore.textContent = `${snap.score}`;
+  dom.hudScorePill.setAttribute('aria-label', `Score ${snap.score} points`);
+  if (hudPainted.score !== null && hudPainted.score !== snap.score) {
+    retriggerAnimation(dom.hudScorePill, 'is-pulse');
+  }
+  hudPainted.score = snap.score;
+
+  dom.hudStreak.textContent = `${snap.streak}`;
+  dom.hudStreakPill.setAttribute('aria-label', `Streak ${snap.streak}`);
+  dom.hudStreakPill.classList.toggle('is-hot', snap.streak > 0);
+  if (hudPainted.streak !== null && hudPainted.streak !== snap.streak) {
+    retriggerAnimation(dom.hudStreakPill, 'is-pulse');
+  }
+  hudPainted.streak = snap.streak;
 
   // Learn Mode uses no lives — only Arcade shows them.
   if (snap.mode === GAME_MODES.ARCADE && snap.lives !== null) {
-    const max = gameData.settings.startingLivesArcade;
-    const hearts = '♥'.repeat(snap.lives) + '·'.repeat(Math.max(0, max - snap.lives));
-    dom.hudLives.textContent = hearts;
+    renderHUDHearts(snap.lives, gameData.settings.startingLivesArcade);
     dom.hudLives.classList.remove('hidden');
     dom.hudLives.setAttribute('aria-label', `${snap.lives} lives left`);
   } else {
@@ -602,15 +705,18 @@ function renderQuestion(payload) {
   gateVisualProgress = 0;
   gateLabelBaseStale = true; // fresh question → remeasure label metrics on screen
 
-  // New gate group: spawn far ahead at the horizon and fade in. The road
-  // (dashes/stones/tufts) never resets — it just keeps flowing, so the next
-  // question reads as a new stretch of the same endless road.
-  world.gate.depth = world.gate.r;
+  // New gate group: spawn AT the vanishing point (tiny, converged, fading
+  // in) and spread out into the lanes as the question's gate clock runs.
+  // The road itself (dashes/stones/tufts) never resets — it just keeps
+  // flowing, so the next question reads as a new stretch of the same
+  // endless road.
+  world.gate.depth = 0;
   world.gate.spawnFade = 0;
+  world.feedbackT = 0;
   world.crawl = 1;
   const durS = (payload.gateDurationMs ?? 12000) / 1000;
   const reduced = prefersReducedMotion ? WORLD_MOTION.reducedFactor : 1;
-  world.a =
+  world.speed =
     Math.min(
       WORLD_MOTION.speedMax,
       Math.max(WORLD_MOTION.speedMin, WORLD_MOTION.speedPerGate / durS)
@@ -752,31 +858,26 @@ function refreshGateLabelBase() {
 
 /* ---- world layer: pooled road objects ----------------------------------
  * Built once, then only transforms/opacity are touched. Dashes ride the
- * painted divider rails, stones the lane rails (avoiding the dividers),
- * tufts the painted road-edge rails, dust the fox's own rail. Everything
- * advances with the same perspective flow coefficient and recycles near
- * the horizon, so the road reads as one endless surface under a camera
+ * coded lane-divider rails (straight lines through the vanishing point),
+ * stones the lane rails (avoiding the dividers), tufts the road's grass
+ * shoulder, dust the fox's own lane. Everything advances linearly in depth
+ * with the same worldSpeed and wraps at the cycle length, so spacing stays
+ * even forever and the road reads as one endless surface under a camera
  * that never stops moving forward.
  * ---------------------------------------------------------------------- */
 
 const roadLayer = () => document.getElementById('road-layer');
 
-/** Depth at which a road object's ground line passes a given y fraction. */
-function depthAtY(yFrac) {
-  return (yFrac - world.yVp) / world.laneSpanY;
-}
-
 function randRange(min, max) {
   return min + Math.random() * (max - min);
 }
 
-/** A random lane-unit position for stones that avoids both divider rails. */
+/** A random lane-unit position for stones that avoids both divider rails
+ * (the dividers sit at ±0.5 lane units at EVERY depth in this projection). */
 function stoneLaneU() {
-  // divider offset in lane units (constant across depth for this rail family)
-  const divU = (world.laneSpanY * world.divBase) / world.laneHalf;
   for (let attempt = 0; attempt < 8; attempt += 1) {
-    const u = randRange(-1.38, 1.38);
-    const nearDivider = Math.abs(u - divU) < 0.32 || Math.abs(u + divU) < 0.32;
+    const u = randRange(-1.3, 1.3);
+    const nearDivider = Math.abs(u - 0.5) < 0.3 || Math.abs(u + 0.5) < 0.3;
     if (!nearDivider) return u;
   }
   return 0; // dead center is always clear
@@ -795,40 +896,69 @@ function buildRoadWorld() {
     return el;
   };
 
-  // Two static road-tone masks that subtly repaint the baked divider stripes,
-  // so the moving dashes never fight a second, static set of markings.
-  world.masks = [make('lane-mask lane-mask--left'), make('lane-mask lane-mask--right')];
+  // Pools are built at the MAXIMUM count any layout uses; each layout
+  // activates only its own counts in rebuildWorldGeometry (dashesPerLine /
+  // stones / tufts in WORLD_LAYOUTS — the central detail knobs).
+  const layouts = Object.values(WORLD_LAYOUTS);
+  const maxPerLine = Math.max(...layouts.map((l) => l.dashesPerLine || 10));
+  const maxStones = Math.max(...layouts.map((l) => l.stones || 10));
+  const maxTufts = Math.max(...layouts.map((l) => l.tufts || 6));
 
-  // 8 dashes per divider line, spread evenly in depth from just below the
-  // horizon to just past the collision plane, second line phase-shifted.
-  const dashSpacing = 0.94 / 7;
+  // Lane dashes per divider line, spread evenly across the depth cycle —
+  // the wrap in updateWorldMotion preserves this spacing forever; the
+  // second line is phase-shifted half a slot.
   for (let line = 0; line < 2; line += 1) {
-    for (let i = 0; i < 8; i += 1) {
+    for (let i = 0; i < maxPerLine; i += 1) {
       const el = make('road-dash');
       world.dashes.push({
         el,
         line,
-        depth: 0.03 + dashSpacing * i + (line ? dashSpacing * 0.5 : 0),
+        depth: ((i + (line ? 0.5 : 0)) / (maxPerLine * 2)) * 1.22,
       });
     }
   }
 
-  // Stones: modest count, three size variants, random rotation.
-  const stoneCls = ['road-stone stone-a', 'road-stone stone-b', 'road-stone stone-c'];
-  for (let i = 0; i < 11; i += 1) {
-    const el = make(stoneCls[i % 3]);
+  // Stones: modest count, four size variants (last = tiny pebble), random rotation.
+  const stoneCls = [
+    'road-stone stone-a',
+    'road-stone stone-b',
+    'road-stone stone-c',
+    'road-stone stone-d',
+  ];
+  for (let i = 0; i < maxStones; i += 1) {
+    const el = make(stoneCls[i % 4]);
     world.stones.push({
       el,
-      depth: randRange(0.12, 1.2),
+      depth: randRange(0.1, 1.2),
       u: stoneLaneU(),
       rot: randRange(-40, 40),
     });
   }
 
-  // Roadside tufts (grass + occasional flower) on the painted road edges.
-  for (let i = 0; i < 6; i += 1) {
-    const el = make(i % 3 === 0 ? 'road-tuft tuft-flower' : 'road-tuft');
-    world.tufts.push({ el, side: i % 2 === 0 ? 1 : -1, depth: randRange(0.14, 0.48) });
+  // Worn patches: faint repair/bleach blotches riding the world flow like
+  // the stones — the surface reads lived-on without cluttering the lanes.
+  const maxPatches = Math.max(...layouts.map((l) => l.patches || 0));
+  for (let i = 0; i < maxPatches; i += 1) {
+    const el = make(i % 2 === 0 ? 'road-patch patch-a' : 'road-patch patch-b');
+    world.patches.push({
+      el,
+      depth: randRange(0.05, 1.15),
+      u: stoneLaneU(),
+      rot: randRange(0, 360),
+      squash: randRange(0.75, 1.45),
+    });
+  }
+
+  // Shoulder tufts (grass + occasional flower) hugging the coded road edge.
+  for (let i = 0; i < maxTufts; i += 1) {
+    const flowerCls = i % 6 === 0 ? 'road-tuft tuft-flower flower-b' : i % 3 === 0 ? 'road-tuft tuft-flower' : 'road-tuft';
+    const el = make(flowerCls);
+    world.tufts.push({
+      el,
+      side: i % 2 === 0 ? 1 : -1,
+      edge: randRange(0.94, 1.12), // share of the road's local half-width
+      depth: randRange(0.1, 0.6),
+    });
   }
 
   // Dust puffs behind the fox (spawned at runtime, pooled).
@@ -840,13 +970,14 @@ function buildRoadWorld() {
 }
 
 /**
- * Recompute every screen-space value the world layer needs: runner size,
- * cover-crop factors for the active painting, divider/edge slopes, dash
- * rotations, mask shapes and pooled element base sizes. Cheap, idempotent;
- * called on init, when the game screen shows and on resize.
+ * Recompute every screen-space value the world needs: runner size, the
+ * active layout's projection constants, the coded road polygons (sand
+ * surface + grass shoulder), divider rail tilt, scenery placement and the
+ * pooled elements' base sizes. Cheap, idempotent; called on init, when the
+ * game screen shows and on resize.
  */
 function rebuildWorldGeometry() {
-  const art = WORLD_ART[sceneGeo.layout] ?? WORLD_ART.desktop;
+  const layout = WORLD_LAYOUTS[sceneGeo.layout] ?? WORLD_LAYOUTS.desktop;
   const rect = dom.runner.getBoundingClientRect();
   if (rect.width < 40 || rect.height < 40) return; // hidden screen — try again when shown
 
@@ -856,55 +987,65 @@ function rebuildWorldGeometry() {
   world.yCol = sceneGeo.collisionY;
   world.laneSpanY = world.yCol - world.yVp;
   world.laneHalf = (Math.abs(laneXFractions[0] - 0.5) + Math.abs(laneXFractions[2] - 0.5)) / 2;
-  world.gate.r = WORLD_MOTION.easeR[sceneGeo.layout] ?? WORLD_MOTION.easeR.desktop;
+  world.farHalf = layout.farHalf;
+  // The road is always wider than the lanes it carries (edge lane ≈ 1.39).
+  world.nearHalf = Math.max(layout.nearHalf, world.laneHalf * 1.32);
+  world.laneFrac = world.laneHalf / world.nearHalf;
+  world.pEase = layout.pEase;
 
-  // Cover-crop factors of the pinned scene painting (see css/game.css):
-  // the painting's horizon row is pinned to the same runner fraction, so a
-  // painted line through the vanishing point maps affinely here — the
-  // quadratic rail coefficients transform the same way.
-  const runnerAspect = world.W / world.H;
-  const kx = art.aspect > runnerAspect ? art.aspect / runnerAspect : 1;
-  const ky = runnerAspect > art.aspect ? runnerAspect / art.aspect : 1;
-  world.divA = (kx * art.dividerA) / ky;
-  world.divB = (kx * art.dividerB) / (ky * ky);
-  // spread normalizer: family(L)/L = divA + divB·L (so laneSpread(1) === 1)
-  world.divBase = world.divA + world.divB * world.laneSpanY;
-  world.edgeA = (kx * art.edgeA) / Math.pow(ky, art.edgePow);
-  world.edgePow = art.edgePow;
+  // Depth wrap: the ground line exits past the bottom edge (t units).
+  const tExit = (WORLD_MOTION.yExit - world.yVp) / world.laneSpanY;
+  world.cycle = Math.pow(tExit, 1 / world.pEase);
 
-  // Masks: thin curved strips from just above the painted dashes' first row
-  // to past the bottom, tapering to a point exactly like the stripes they
-  // replace (11 samples along the fitted rail).
-  const yTop = art.maskTopY;
-  const yBot = 1.03;
-  world.masks.forEach((mask, i) => {
-    const side = i === 0 ? -1 : 1;
-    const rightEdge = [];
-    const leftEdge = [];
-    const STEPS = 10;
-    for (let s = 0; s <= STEPS; s += 1) {
-      const yF = yTop + ((yBot - yTop) * s) / STEPS;
-      const dy = yF - sceneGeo.horizonY;
-      const c = 50 + side * railOffset(dy) * 100;
-      const hw = Math.max(0.02, (art.maskHalf1 * dy * 100) / (1 - sceneGeo.horizonY));
-      rightEdge.push(`${(c + hw).toFixed(2)}% ${(yF * 100).toFixed(2)}%`);
-      leftEdge.push(`${(c - hw).toFixed(2)}% ${(yF * 100).toFixed(2)}%`);
-    }
-    mask.style.clipPath = `polygon(${rightEdge.join(', ')}, ${leftEdge.reverse().join(', ')})`;
-    mask.style.background = `linear-gradient(to bottom, ${art.toneTop}, ${art.toneBottom})`;
+  // Divider rails are straight lines through the vanishing point (x ∝ t,
+  // y ∝ t), so each dash keeps one constant tilt per side.
+  const mDiv = (0.5 * world.laneFrac * (world.nearHalf - world.farHalf)) / world.laneSpanY;
+  const angle = (Math.atan2(mDiv * world.W, world.H) * 180) / Math.PI;
+  world.divAngle = [-angle, angle];
+
+  drawCodedRoad(layout);
+  placeScenery(layout);
+
+  // Activate exactly this layout's detail counts (WORLD_LAYOUTS): dashes
+  // keep perfectly even spacing per line; surplus pool nodes hide.
+  const perLine = layout.dashesPerLine || 10;
+  const lineCount = [0, 0];
+  for (const d of world.dashes) {
+    const idx = lineCount[d.line]++;
+    const active = idx < perLine;
+    d.el.style.display = active ? '' : 'none';
+    if (active) d.depth = ((idx + (d.line ? 0.5 : 0)) / (perLine * 2)) * 1.22;
+  }
+  world.stones.forEach((s, i) => {
+    s.el.style.display = i < (layout.stones || 10) ? '' : 'none';
   });
+  world.patches.forEach((pa, i) => {
+    pa.el.style.display = i < (layout.patches || 0) ? '' : 'none';
+  });
+  world.tufts.forEach((t, i) => {
+    t.el.style.display = i < (layout.tufts || 6) ? '' : 'none';
+  });
+  // Sand grain intensity per layout (0 removes the layer).
+  dom.runner.style.setProperty('--road-grain-o', String(layout.grain ?? 0.5));
 
-  // Base sizes at the collision plane (scale 1); per-frame scale = depth.
-  const dashW = art.dashW0 * world.W;
+  // Base sizes at the collision plane (scale 1); per-frame scale comes from
+  // the projection's road-width ratio.
+  const dashW = layout.dashW0 * world.W;
   for (const d of world.dashes) {
     d.el.style.width = `${dashW.toFixed(1)}px`;
-    d.el.style.height = `${(dashW * art.dashAspect).toFixed(1)}px`;
+    d.el.style.height = `${(dashW * layout.dashAspect).toFixed(1)}px`;
   }
   const stoneBase = world.W * 0.013;
   world.stones.forEach((s, i) => {
-    const v = 0.75 + (i % 3) * 0.42;
+    const variant = i % 4; // 0-2 pebbles, 3 = tiny speck
+    const v = variant === 3 ? 0.42 : 0.75 + variant * 0.42;
     s.el.style.width = `${(stoneBase * v).toFixed(1)}px`;
     s.el.style.height = `${(stoneBase * v * 0.72).toFixed(1)}px`;
+  });
+  const patchBase = world.W * 0.1;
+  world.patches.forEach((pa) => {
+    pa.el.style.width = `${patchBase.toFixed(1)}px`;
+    pa.el.style.height = `${(patchBase * 0.62).toFixed(1)}px`;
   });
   const tuftBase = world.W * 0.02;
   world.tufts.forEach((t, i) => {
@@ -921,12 +1062,128 @@ function rebuildWorldGeometry() {
   renderWorldStatic();
 }
 
+/**
+ * Draw the coded road polygons through the shared projection: the sand
+ * surface, the (slightly wider, blurred) grass shoulder under it, and the
+ * soft edge-wear bands hugging the sand's slanted sides. All run from the
+ * vanishing point to past the bottom edge, so the meadow, scenery and road
+ * join without seams.
+ */
+function drawCodedRoad(layout) {
+  const roadSurface = document.getElementById('road-surface');
+  const roadEdge = document.getElementById('road-edge');
+  const roadShading = document.getElementById('road-shading');
+  if (!roadSurface || !roadEdge) return;
+
+  const tExit = Math.pow(world.cycle, world.pEase); // y = yExit at the bottom
+  const polygon = (grow) => {
+    const STEPS = 12;
+    const left = [];
+    const right = [];
+    for (let s = 0; s <= STEPS; s += 1) {
+      const t = (tExit * s) / STEPS;
+      const half = world.farHalf + (world.nearHalf - world.farHalf) * t + grow(t);
+      const y = ((world.yVp + t * world.laneSpanY) * 100).toFixed(2);
+      left.push(`${((0.5 - half) * 100).toFixed(2)}% ${y}%`);
+      right.push(`${((0.5 + half) * 100).toFixed(2)}% ${y}%`);
+    }
+    return `polygon(${left.join(', ')}, ${right.reverse().join(', ')})`;
+  };
+
+  roadSurface.style.clipPath = polygon(() => 0);
+  // the shoulder rim widens toward the camera, like the road itself
+  roadEdge.style.clipPath = polygon(
+    (t) => layout.roadShoulder * (0.35 + t * 0.75)
+  );
+
+  // Edge-wear bands: a slanted ring between the sand edge and a
+  // proportionally inset line on each side (perspective-true — the band is
+  // a constant SHARE of the road width). Clipped after a small blur so the
+  // inner boundary is soft; the CSS fill alpha is set below.
+  if (roadShading) {
+    const wear = layout.wearW || 0;
+    const band = (side) => {
+      const STEPS = 8;
+      const outer = [];
+      const inner = [];
+      for (let s = 0; s <= STEPS; s += 1) {
+        const t = (tExit * s) / STEPS;
+        const half = world.farHalf + (world.nearHalf - world.farHalf) * t;
+        const y = ((world.yVp + t * world.laneSpanY) * 100).toFixed(2);
+        outer.push(`${((0.5 + side * half) * 100).toFixed(2)}% ${y}%`);
+        inner.push(`${((0.5 + side * half * (1 - wear)) * 100).toFixed(2)}% ${y}%`);
+      }
+      return `polygon(${outer.join(', ')}, ${inner.reverse().join(', ')})`;
+    };
+    roadShading.style.setProperty('--wear-clip-l', wear > 0 ? band(-1) : 'none');
+    roadShading.style.setProperty('--wear-clip-r', wear > 0 ? band(1) : 'none');
+    roadShading.style.setProperty('--wear-alpha', String(ROAD_TEXTURE.wearAlpha));
+  }
+
+  // Wheel-wear tracks: one soft band down each lane centre, following the
+  // exact lane projection (x = 0.5 + laneU × laneFrac × half) so a track
+  // always lands under the lane the fox and gates use.
+  const roadTracks = document.getElementById('road-tracks');
+  if (roadTracks) {
+    const TRACK_HALF = 0.17; // lane units
+    [-1, 0, 1].forEach((laneU, idx) => {
+      const left = [];
+      const right = [];
+      for (let s = 0; s <= 8; s += 1) {
+        const t = (tExit * s) / 8;
+        const half = world.farHalf + (world.nearHalf - world.farHalf) * t;
+        const y = ((world.yVp + t * world.laneSpanY) * 100).toFixed(2);
+        const centre = (0.5 + laneU * world.laneFrac * half) * 100;
+        const trackHalf = TRACK_HALF * world.laneFrac * half * 100;
+        left.push(`${(centre - trackHalf).toFixed(2)}% ${y}%`);
+        right.push(`${(centre + trackHalf).toFixed(2)}% ${y}%`);
+      }
+      roadTracks.style.setProperty(
+        `--track-clip-${idx}`,
+        `polygon(${left.join(', ')}, ${right.reverse().join(', ')})`
+      );
+    });
+  }
+}
+
+/**
+ * Size + position the two scenery pieces for the active layout. They are
+ * always UNDER the coded road (DOM order), so whatever the crop, they can
+ * only ever frame the road, never cover a lane.
+ */
+function placeScenery(layout) {
+  const sides = {
+    left: document.getElementById('scenery-left'),
+    right: document.getElementById('scenery-right'),
+  };
+  for (const [side, el] of Object.entries(sides)) {
+    if (!el) continue;
+    if (layout.sceneryMode === 'cover') {
+      // phones: a short, aggressively cropped landmark strip in the upper
+      // corner (CSS feathers it into the sky/road). It frames the road —
+      // the road itself owns nearly the full width at the bottom.
+      el.style.width = `${layout.sceneryW * 100}%`;
+      el.style.height = `${(layout.sceneryH ?? 1) * 100}%`;
+      el.style.objectFit = 'cover';
+      el.style.objectPosition = layout.sceneryPos?.[side] ?? 'center';
+    } else {
+      // desktop/tablet: full artwork, aspect preserved, anchored to the
+      // bottom edge so its meadow meets the runner's ground
+      el.style.width = `${layout.sceneryW * 100}%`;
+      el.style.height = 'auto';
+      el.style.objectFit = '';
+      el.style.objectPosition = '';
+    }
+  }
+}
+
 /** Reposition every pooled object from its stored depth (after geometry
  * changes); keeps the world intact across resizes and breakpoints. */
 function renderWorldStatic() {
   if (!world.built || world.W < 40) return;
   for (const d of world.dashes) renderDash(d);
   for (const s of world.stones) renderStone(s);
+  for (const pa of world.patches) renderPatch(pa);
   for (const t of world.tufts) renderTuft(t);
   for (const p of world.dusts) renderDust(p);
 }
@@ -937,88 +1194,110 @@ function setLayerZ(el, depth) {
 }
 
 function renderDash(d) {
-  const side = d.line === 0 ? -1 : 1;
-  const dy = d.depth * world.laneSpanY;
-  const y = (world.yVp + dy) * world.H;
-  const x = (0.5 + side * railOffset(dy)) * world.W;
-  // local tangent of the curved rail → dash rotation (px space)
-  const mLocal = side * (world.divA + 2 * world.divB * dy);
-  const angle = (Math.atan2(mLocal * world.W, world.H) * 180) / Math.PI;
+  const rail = d.line === 0 ? -0.5 : 0.5; // lane units of the divider rail
+  const p = projectRoadPoint(d.depth, rail);
   d.el.style.transform =
-    `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) ` +
-    `translate(-50%, -50%) rotate(${angle.toFixed(1)}deg) scale(${d.depth.toFixed(3)})`;
-  d.el.style.opacity = Math.min(1, 0.25 + d.depth * 3).toFixed(2);
+    `translate3d(${(p.x * world.W).toFixed(1)}px, ${(p.y * world.H).toFixed(1)}px, 0) ` +
+    `translate(-50%, -50%) rotate(${world.divAngle[d.line].toFixed(1)}deg) scale(${p.scale.toFixed(3)})`;
+  d.el.style.opacity = Math.min(1, 0.38 + p.t * 2.4).toFixed(2);
   setLayerZ(d.el, d.depth);
 }
 
 function renderStone(s) {
   const p = projectRoadPoint(s.depth, s.u);
   s.el.style.transform =
-    `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0) ` +
-    `translate(-50%, -50%) rotate(${s.rot.toFixed(0)}deg) scale(${(s.depth * 0.92).toFixed(3)})`;
-  s.el.style.opacity = Math.min(0.85, 0.2 + s.depth * 2.2).toFixed(2);
+    `translate3d(${(p.x * world.W).toFixed(1)}px, ${(p.y * world.H).toFixed(1)}px, 0) ` +
+    `translate(-50%, -50%) rotate(${s.rot.toFixed(0)}deg) scale(${p.scale.toFixed(3)})`;
+  s.el.style.opacity = Math.min(0.85, 0.2 + p.t * 2.2).toFixed(2);
   setLayerZ(s.el, s.depth);
 }
 
+/** Worn patch: same flow as a stone, but a wide faint blob with its own
+ * squash factor so no two patches read alike. */
+function renderPatch(pa) {
+  const p = projectRoadPoint(pa.depth, pa.u);
+  pa.el.style.transform =
+    `translate3d(${(p.x * world.W).toFixed(1)}px, ${(p.y * world.H).toFixed(1)}px, 0) ` +
+    `translate(-50%, -50%) rotate(${pa.rot.toFixed(0)}deg) ` +
+    `scale(${(p.scale * pa.squash).toFixed(3)}, ${p.scale.toFixed(3)})`;
+  pa.el.style.opacity = Math.min(0.55, 0.1 + p.t * 1.5).toFixed(2);
+  setLayerZ(pa.el, pa.depth);
+}
+
 function renderTuft(t) {
-  const p = edgeRailX(t.depth, t.side);
+  // right on the road's local edge line: u = ±edge / laneFrac of half-width
+  const p = projectRoadPoint(t.depth, (t.side * t.edge) / world.laneFrac);
   t.el.style.transform =
-    `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0) ` +
-    `translate(-50%, -60%) scale(${t.depth.toFixed(3)})`;
-  t.el.style.opacity = Math.min(0.9, 0.3 + t.depth * 2.6).toFixed(2);
+    `translate3d(${(p.x * world.W).toFixed(1)}px, ${(p.y * world.H).toFixed(1)}px, 0) ` +
+    `translate(-50%, -60%) scale(${p.scale.toFixed(3)})`;
+  t.el.style.opacity = Math.min(0.9, 0.3 + p.t * 2.6).toFixed(2);
   setLayerZ(t.el, t.depth);
 }
 
-function renderDust(p) {
-  if (p.born <= 0) {
-    p.el.style.opacity = '0';
+function renderDust(puff) {
+  if (puff.born <= 0) {
+    puff.el.style.opacity = '0';
     return; // pooled but idle
   }
-  const x = (0.5 + p.m * p.depth) * world.W;
-  const y = (world.yVp + p.depth * world.laneSpanY) * world.H;
-  const life = Math.min(1, Math.max(0, (p.depth - p.born) / 0.26));
-  p.el.style.transform =
-    `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) ` +
-    `translate(-50%, -50%) scale(${(0.55 + p.depth * 0.5).toFixed(3)})`;
-  p.el.style.opacity = (0.3 * (1 - life)).toFixed(3);
-  setLayerZ(p.el, Math.min(p.depth, 1.3));
+  const p = projectRoadPoint(puff.depth, puff.m);
+  const life = Math.min(1, Math.max(0, (puff.depth - puff.born) / 0.26));
+  puff.el.style.transform =
+    `translate3d(${(p.x * world.W).toFixed(1)}px, ${(p.y * world.H).toFixed(1)}px, 0) ` +
+    `translate(-50%, -50%) scale(${(0.55 + p.t * 0.5).toFixed(3)})`;
+  puff.el.style.opacity = (0.3 * (1 - life)).toFixed(3);
+  setLayerZ(puff.el, Math.min(puff.depth, 1.3));
 }
 
 /**
  * Advance + render the whole world layer for one frame.
- * coeff = world.a · slow-motion factor (0 pauses everything: gates, dashes,
- * stones, dust). Dust is spawned at the fox's feet and rides the same flow.
+ * rate = slow-motion multiplier of worldSpeed (0 pauses everything: dashes,
+ * stones, tufts, dust). Every prop advances LINEARLY in depth and wraps by
+ * the cycle length, which keeps the markers' spacing perfectly even — the
+ * perspective feel comes from the t-easing in the projection, not from the
+ * flow. Dust is spawned at the fox's feet and rides the same flow.
  */
-function updateWorldMotion(dt, coeff, playerAnimFactor) {
+function updateWorldMotion(dt, rate, playerAnimFactor) {
   if (!world.built || world.W < 40) return;
-  const dExit = depthAtY(WORLD_MOTION.yExit);
-  const dSpawnBase = depthAtY(world.yVp + 0.018);
+  const adv = world.speed * rate * dt;
 
-  if (coeff > 0) {
+  if (adv > 0) {
     for (const d of world.dashes) {
-      d.depth = flowDepth(d.depth, dt, coeff);
-      if (d.depth > dExit) d.depth = dSpawnBase + Math.random() * dSpawnBase * 0.8;
+      d.depth += adv;
+      if (d.depth >= world.cycle) d.depth -= world.cycle;
       renderDash(d);
     }
     for (const s of world.stones) {
-      s.depth = flowDepth(s.depth, dt, coeff);
-      if (s.depth > 1.3) {
-        s.depth = randRange(0.1, 0.22);
-        s.u = stoneLaneU();
+      s.depth += adv;
+      if (s.depth >= world.cycle) {
+        s.depth -= world.cycle;
+        s.u = stoneLaneU(); // fresh lane on each pass for variety
       }
       renderStone(s);
     }
+    for (const pa of world.patches) {
+      pa.depth += adv;
+      if (pa.depth >= world.cycle) {
+        pa.depth -= world.cycle;
+        pa.u = stoneLaneU();
+        pa.rot = randRange(0, 360);
+        pa.squash = randRange(0.75, 1.45);
+      }
+      renderPatch(pa);
+    }
     for (const t of world.tufts) {
-      t.depth = flowDepth(t.depth, dt, coeff);
-      const x = edgeRailX(t.depth, t.side).x / world.W;
-      if (t.depth > 1.25 || x < -0.06 || x > 1.06) t.depth = randRange(0.12, 0.2);
+      t.depth += adv;
+      if (t.depth >= world.cycle * 0.62) {
+        // tufts live on the visible far/mid shoulder only
+        t.depth -= world.cycle * 0.62;
+        t.edge = randRange(0.94, 1.12);
+      }
       renderTuft(t);
     }
-    for (const p of world.dusts) {
-      if (p.born > 0) {
-        p.depth = flowDepth(p.depth, dt, coeff);
-        if (p.depth > p.born + 0.3) p.born = 0;
-        renderDust(p);
+    for (const puff of world.dusts) {
+      if (puff.born > 0) {
+        puff.depth += adv;
+        if (puff.depth > puff.born + 0.3) puff.born = 0;
+        renderDust(puff);
       }
     }
 
@@ -1030,9 +1309,9 @@ function updateWorldMotion(dt, coeff, playerAnimFactor) {
         const puff = world.dusts[world.dustIdx++ % world.dusts.length];
         const foxLeft = parseFloat(getComputedStyle(dom.player).left);
         const foxX = Number.isFinite(foxLeft) && foxLeft > 0 ? foxLeft / world.W : 0.5;
-        puff.born = depthAtY(0.955) - randRange(0.04, 0.11);
+        puff.born = 1 + randRange(-0.03, 0.06); // right at the fox's ground line
         puff.depth = puff.born;
-        puff.m = (foxX - 0.5) / puff.depth + randRange(-0.035, 0.035);
+        puff.m = (foxX - 0.5) / world.laneHalf + randRange(-0.06, 0.06);
         renderDust(puff);
       }
     }
@@ -1041,19 +1320,24 @@ function updateWorldMotion(dt, coeff, playerAnimFactor) {
 
 /**
  * Gate visual state per engine state:
- *  - PLAYING: depth follows gateEase(gateProgress) exactly, so the gate
- *    reaches the collision plane at the same instant the engine resolves.
- *  - FEEDBACK: the gate keeps flowing with the world (slowed by the crawl
- *    factor), sliding past/behind the fox rather than stopping in its face.
+ *  - PLAYING: depth IS gateProgress — the gate reaches the collision plane
+ *    at the exact frame the engine resolves the question.
+ *  - FEEDBACK: the gate sweeps past the camera at gatePassBoost × world
+ *    speed (~100–200ms from collision to fully behind us), scaling up and
+ *    fading as it exits, while the road itself slows to the crawl factor.
  */
 function updateGateVisual(dt, state) {
   const g = world.gate;
   if (state === GAME_STATES.PLAYING) {
-    g.depth = gateEase(gateVisualProgress);
-    g.spawnFade = Math.min(1, g.spawnFade + dt * 3.6);
+    g.depth = gateVisualProgress;
+    g.spawnFade = Math.min(1, g.spawnFade + dt * 3);
   } else if (state === GAME_STATES.FEEDBACK) {
+    world.feedbackT += dt;
     g.spawnFade = 1;
-    g.depth = Math.min(1.42, flowDepth(g.depth, dt, world.a * world.crawl));
+    g.depth = Math.min(
+      world.cycle,
+      g.depth + world.speed * WORLD_MOTION.gatePassBoost * dt
+    );
   }
 }
 
@@ -1063,24 +1347,36 @@ function renderGates() {
   // Container-query sizes only resolve on screen — measure lazily on the
   // first visible frame rather than while #screen-game is display:none.
   if (gateLabelBaseStale) refreshGateLabelBase();
-  const { farScale, nearScale, farOpacity, minLabelPx, maxLabelBoost } = RUNNER_GEO;
+  const { farOpacity, minLabelPx, maxLabelBoost } = RUNNER_GEO;
+  // Layouts may lift the readability floor (phone boards must read from
+  // spawn); the true perspective curve still owns the near-camera size.
+  const activeLayout = WORLD_LAYOUTS[sceneGeo.layout] ?? WORLD_LAYOUTS.desktop;
+  const floorFar = activeLayout.farGateScale ?? RUNNER_GEO.floorFar;
+  const floorNear = activeLayout.nearGateScale ?? RUNNER_GEO.floorNear;
   const D = world.gate.depth;
-  const scale = farScale + (nearScale - farScale) * D;
-  const yFrac = world.yVp + D * world.laneSpanY;
-  // Fade in from the horizon on spawn, fade out once passed behind the fox.
-  const passFade = 1 - Math.min(1, Math.max(0, (D - 1.12) / 0.2));
+  const t = easeDepth(D);
+  // Perspective-true gate size: the road's own width ratio at this depth,
+  // with the readability floor underneath (the floor only binds far away).
+  const roadScale = (world.farHalf + (world.nearHalf - world.farHalf) * t) / world.nearHalf;
+  const floor = floorFar + (floorNear - floorFar) * Math.min(t, 1);
+  const scale = Math.max(roadScale, floor);
+  // Fade in from the horizon on spawn; once past the collision plane the
+  // gate fades quickly (t 1.02→1.14) so the pass-through never reads as a
+  // giant wall flashing across — or past — the screen edges.
+  const passFade = 1 - Math.min(1, Math.max(0, (t - 1.02) / 0.12));
   const opacity =
-    (farOpacity + (1 - farOpacity) * Math.min(1, D / 0.45)) * world.gate.spawnFade * passFade;
+    (farOpacity + (1 - farOpacity) * Math.min(1, t / 0.45)) * world.gate.spawnFade * passFade;
 
   for (let lane = 0; lane < 3; lane += 1) {
-    // Gates ride the lane rails: squeezed to the vanishing point at spawn,
-    // following the painted lanes' mid-road bow (laneSpread), and landing
-    // exactly on the CSS lane anchors (--lane-x-*) at the collision moment.
-    const xFrac = 0.5 + (laneXFractions[lane] - 0.5) * laneSpread(D);
+    // Same projection as every road object: squeezed to the vanishing point
+    // at spawn, landing exactly on the CSS lane anchors (--lane-x-*) at the
+    // collision moment, then spreading past the camera during pass-through.
+    const laneU = lane === 1 ? 0 : lane === 0 ? -1 : 1;
+    const p = projectRoadPoint(D, laneU);
     const el = gateEls[lane];
     // (x, y) is the gate's ground point: bottom-centered, standing on the road.
     el.style.transform =
-      `translate3d(${(xFrac * world.W).toFixed(1)}px, ${(yFrac * world.H).toFixed(1)}px, 0) ` +
+      `translate3d(${(p.x * world.W).toFixed(1)}px, ${(p.y * world.H).toFixed(1)}px, 0) ` +
       `translate(-50%, -100%) scale(${scale.toFixed(4)})`;
     el.style.opacity = opacity.toFixed(3);
     setLayerZ(el, D); // always below the player (z 5)
@@ -1108,8 +1404,10 @@ function hideFeedback() {
 function renderFeedback(result) {
   if (engine.state !== GAME_STATES.FEEDBACK) return; // e.g. game-over screens take over
 
-  // World slow-motion through the feedback moment: correct answers keep the
-  // fox trotting forward (gate slides past quickly), wrong answers hesitate.
+  // World slow-motion through the feedback moment: a short full-speed burst
+  // (the fox punches through the gate), then the world settles to a crawl —
+  // correct answers keep trotting, wrong answers hesitate harder.
+  world.feedbackT = 0;
   world.crawl = result.isCorrect ? WORLD_MOTION.crawlCorrect : WORLD_MOTION.crawlWrong;
 
   gateEls.forEach((gate) => {
@@ -1216,43 +1514,98 @@ function renderGameOver(summary) {
 }
 
 /* ========================================================================
- * 12. Level selector (start screen)
+ * 12. Level selector (start screen hero + selection overlay)
  * ====================================================================== */
+
+/** Lock icon shown on cards the engine has not unlocked yet. */
+const LEVEL_LOCK_ICON =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" ' +
+  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
 
 function renderLevelList() {
   if (!engine) return;
   const progress = engine.getProgress();
+  const defaultLevelId = pickDefaultLevel();
   dom.levelList.replaceChildren(
     ...gameData.levels.map((level) => {
       const unlocked = progress.unlockedLevels.includes(level.id);
       const record = progress.levels[String(level.id)];
-      const stars = record ? starsText(record.bestStars) : '';
-      const meta = [`CEFR ${level.cefr}`, `${level.questionCount} questions`];
-      if (record) meta.push(`best ${record.bestScore} pts`);
+      const stars = record ? record.bestStars : 0;
+      const isCurrent = unlocked && level.id === defaultLevelId;
 
+      const item = document.createElement('li');
       const button = document.createElement('button');
       button.type = 'button';
-      button.className = 'level-item';
-      button.disabled = !unlocked;
-      button.setAttribute('aria-label', unlocked ? `Play ${level.title}` : `${level.title} (locked)`);
+      button.className = `level-card${isCurrent ? ' is-current' : ''}`;
+      button.disabled = !unlocked; // the engine owns unlocks — locked stays locked
+      button.setAttribute(
+        'aria-label',
+        unlocked
+          ? `Play level ${level.id}: ${level.title}, ${stars} of 3 stars`
+          : `Level ${level.id}: ${level.title} — locked, pass the previous level to unlock`
+      );
+
+      const num = document.createElement('span');
+      num.className = 'level-card__num';
+      if (unlocked) num.textContent = String(level.id);
+      else num.innerHTML = LEVEL_LOCK_ICON;
+
       const title = document.createElement('span');
-      title.className = 'level-item-title';
-      title.textContent = unlocked ? `${level.id}. ${level.title}` : `🔒 ${level.id}. ${level.title}`;
-      const metaSpan = document.createElement('span');
-      metaSpan.className = 'level-item-meta';
-      metaSpan.textContent = meta.join(' · ');
+      title.className = 'level-card__title';
+      title.textContent = level.title;
+
+      const meta = document.createElement('span');
+      meta.className = 'level-card__meta';
+      meta.textContent = `CEFR ${level.cefr} · ${level.questionCount} questions`;
+
       const starsSpan = document.createElement('span');
-      starsSpan.className = 'level-item-stars';
-      starsSpan.textContent = stars;
-      button.append(title, metaSpan, starsSpan);
-      button.addEventListener('click', () => startGame(level.id));
-      return button;
+      starsSpan.className = 'level-card__stars';
+      starsSpan.textContent = starsText(stars); // star count also lives in the aria-label
+      starsSpan.setAttribute('aria-hidden', 'true');
+
+      button.append(num, title, meta, starsSpan);
+      if (isCurrent) {
+        const tag = document.createElement('span');
+        tag.className = 'level-card__tag';
+        tag.textContent = 'Next up';
+        button.append(tag);
+      }
+      button.addEventListener('click', () => {
+        closeLevelModal();
+        startGame(level.id);
+      });
+      item.append(button);
+      return item;
     })
   );
 
+  // Progress summaries (hero chip + overlay header) and the Play label.
+  const total = gameData.levels.length;
   const passedCount = progress.passedLevels.length;
-  const allPassed = passedCount === gameData.levels.length;
-  dom.btnPlay.textContent = allPassed ? `Play ${gameData.levels[gameData.levels.length - 1].title}` : 'Play';
+  const starSum = gameData.levels.reduce(
+    (sum, level) => sum + (progress.levels[String(level.id)]?.bestStars ?? 0),
+    0
+  );
+  const allPassed = passedCount === total;
+  dom.heroProgress.textContent = `${passedCount} / ${total} levels · ${starSum} ★`;
+  dom.levelModalProgress.textContent =
+    `${passedCount} of ${total} levels passed · ${starSum} of ${total * 3} stars earned`;
+  dom.btnPlayLabel.textContent = allPassed
+    ? `Play ${gameData.levels[total - 1].title}`
+    : 'Play Now';
+}
+
+/** Open/close the level-selection overlay (focus returns to its trigger). */
+function openLevelModal() {
+  dom.levelModal.classList.remove('hidden');
+  dom.btnLevelsClose.focus({ preventScroll: true });
+}
+
+function closeLevelModal() {
+  if (dom.levelModal.classList.contains('hidden')) return;
+  dom.levelModal.classList.add('hidden');
+  dom.btnLevels.focus({ preventScroll: true });
 }
 
 /** First unlocked level not passed yet in Learn Mode (or the last level). */
@@ -1285,6 +1638,12 @@ function bindUiEvents() {
   });
   dom.btnModeLearn.addEventListener('click', () => setMode(GAME_MODES.LEARN));
   dom.btnModeArcade.addEventListener('click', () => setMode(GAME_MODES.ARCADE));
+  dom.btnLevels.addEventListener('click', openLevelModal);
+  dom.btnLevelsClose.addEventListener('click', closeLevelModal);
+  // tapping the scrim (not the card) dismisses the overlay
+  dom.levelModal.addEventListener('pointerdown', (event) => {
+    if (event.target === dom.levelModal) closeLevelModal();
+  });
   dom.btnResetProgress.addEventListener('click', () => {
     engine.resetProgress(); // dev-only control; refreshes the level list via event
   });
@@ -1366,13 +1725,9 @@ function bindUiEvents() {
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
-      const layoutBefore = sceneGeo.layout;
       readSceneGeo();
-      rebuildWorldGeometry(); // slopes, masks and pooled sizes follow the new layout
+      rebuildWorldGeometry(); // road polygons, scenery + pooled sizes follow the new layout
       gateLabelBaseStale = true;
-      // Breakpoint crossed (e.g. tablet rotated): warm the newly selected
-      // painting before CSS swaps it in, so the scene never flashes.
-      if (sceneGeo.layout !== layoutBefore) preloadSceneImage();
     }, 120);
   });
 }
@@ -1397,6 +1752,11 @@ function movePlayerToLane(lane) {
 }
 
 function handleKeydown(event) {
+  // The start screen owns Escape while the level overlay is open.
+  if (currentScreen === 'start' && event.key === 'Escape') {
+    if (engine && !dom.levelModal.classList.contains('hidden')) closeLevelModal();
+    return;
+  }
   if (!engine || currentScreen === 'start' || currentScreen === 'error') return;
   const state = engine.state;
   let handled = true;
@@ -1559,26 +1919,8 @@ async function preloadGateArt() {
 }
 
 /**
- * Preload + decode the ONE environment painting the current breakpoint
- * actually uses, before gameplay begins, so the world never flashes in
- * half-painted. The URL is read from the resolved CSS background (the same
- * media queries that paint it) — no breakpoint logic is duplicated here.
- * Only the active variant is fetched; the other device-class images stay
- * untouched. Purely best-effort: a failed load just leaves the CSS sky
- * fallback in place, gameplay is unaffected.
+ * Frames actually cycled in the current motion-preference mode.
  */
-function preloadSceneImage() {
-  if (!dom.scene || typeof Image === 'undefined') return;
-  const match = getComputedStyle(dom.scene).backgroundImage.match(/url\((['"]?)([^'")]+)\1\)/);
-  if (!match) return;
-  const img = new Image();
-  img.src = match[2];
-  if (typeof img.decode === 'function') {
-    img.decode().catch(() => {}); // advisory only — onload/timeout settle it
-  }
-}
-
-/** Frames actually cycled in the current motion-preference mode. */
 function activeRunFrames() {
   if (!prefersReducedMotion || runtimeRunFrames.length < 2) return runtimeRunFrames;
   // Reduced motion: slow two-frame loop (first + opposite phase of the cycle).
@@ -1669,23 +2011,28 @@ function loop(now) {
     const state = engine.state;
 
     if (currentScreen === 'game') {
-      // World flow: full speed while running, slow-motion crawl through
-      // feedback, frozen while paused/elsewhere. Delta is clamped so a
-      // background tab can never teleport the road.
+      // Delta is clamped so a background tab can never teleport the road.
       const dt = Math.min(deltaMs, 40) / 1000;
-      const coeff =
-        state === GAME_STATES.PLAYING ? world.a
-        : state === GAME_STATES.FEEDBACK ? world.a * world.crawl
-        : 0;
+
+      // Gate pass-through first: it owns the feedback clock (feedbackT).
+      updateGateVisual(dt, state);
+
+      // World flow: full speed while running, a short full-speed burst
+      // right after the gate is passed, then slow-motion crawl through the
+      // rest of feedback, frozen while paused/elsewhere.
+      const rate =
+        state === GAME_STATES.PLAYING ? 1
+        : state === GAME_STATES.FEEDBACK
+          ? world.feedbackT < WORLD_MOTION.burstS ? 1 : world.crawl
+          : 0;
 
       if (state === GAME_STATES.FEEDBACK) {
         // The fox keeps trotting through the feedback moment, matched to the
-        // world crawl so it never looks like it crashed into the gate.
-        updatePlayerAnimation(Math.min(deltaMs, 40) * (0.35 + world.crawl));
+        // world rate so it never looks like it crashed into the gate.
+        updatePlayerAnimation(Math.min(deltaMs, 40) * (0.35 + Math.max(rate, 0.15)));
       }
 
-      updateWorldMotion(dt, coeff, state === GAME_STATES.PLAYING ? 1 : world.crawl * 1.6);
-      updateGateVisual(dt, state);
+      updateWorldMotion(dt, rate, state === GAME_STATES.PLAYING ? 1 : Math.max(rate, 0.15) * 1.6);
       renderGates();
       updateDebugBar(now);
     }

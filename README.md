@@ -14,14 +14,18 @@ question panel, feedback UI, mascot details, animations polish and audio.
 ```
 index.html                  DOM skeleton: screens, HUD, road, gates, overlays
 css/game.css                Styling: layout, breakpoints, scene/gate/fox systems
+css/start.css               Landing screen: hero over the approved countryside art
+                            + fox mascot, level-selection modal (start screen only)
 js/engine.js                ArticleRunnerEngine — the single canonical engine
 js/game.js                  UI controller: renders engine state, forwards input
 data/game-data.json         The single canonical data source (levels, questions,
                             rules, scoring and timing settings)
 tests/engine.test.js        Test suite for js/engine.js (node:test, 162 tests)
-assets/characters/          Approved fox run cycle (8 frames, 1254×1254 PNG)
+assets/characters/          Approved fox run cycle (8 frames) + fox-hero mascot
+                            for the start screen (webp + png sources)
 assets/gates/               Approved gate artwork (webp + png sources)
-assets/backgrounds/         Approved environment paintings (webp + png sources)
+assets/backgrounds/         Approved environment paintings (webp + png sources),
+                            plus hero-countryside for the start screen
 assets/environment|ui|audio/ Placeholders for the remaining visual phases
 ```
 

@@ -1,0 +1,1035 @@
+/* ==========================================================================
+ * Definite Dash — start screen (css/start.css)
+ * --------------------------------------------------------------------------
+ * The production landing screen: a cinematic hero built over the approved
+ * countryside artwork (assets/backgrounds/hero-countryside.webp) with the
+ * approved fox mascot (assets/characters/fox-hero.webp). Every word is real
+ * HTML text; nothing is baked into the art. Level selection lives in a modal
+ * overlay so the hero stays clean; unlocks/stars still come from the engine.
+ *
+ * Scoped strictly to the start screen (.screen-start and its children) so no
+ * rule here can reach the gameplay world in css/game.css. Breakpoints mirror
+ * the scene system (680px / 1100px) so the whole app speaks one width scale.
+ * ========================================================================= */
+
+/* ---------- screen shell ---------- */
+
+.screen-start {
+  /* the hero runs edge-to-edge under notches; inner elements add their own
+   * safe-area padding where content sits near an edge */
+  padding: 0;
+  align-items: stretch;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: #0d2a52; /* tone behind the art while it streams in */
+}
+
+.hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 100%; /* short screens grow the hero instead of shrinking UI */
+}
+
+/* ---------- approved backdrop + readability shade ----------
+ * Both layers are first in the DOM with z-index 0; .hero__top (z 2) and
+ * .hero__body (z 1) paint above them. No negative z-index anywhere — it can
+ * escape behind ancestor backgrounds in some compositing paths. */
+
+.hero__bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* tuned desktop crop: keeps the full road foreground, the horizon and most
+   * of the windmill while trimming only calm sky */
+  object-position: 50% 62%;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* Dark navy ONLY where text sits: a top band for the brand row, a left-side
+ * gradient behind the copy that fades out well before the fox, and a faint
+ * floor for the chips. The fox/right scenery stays bright and colorful. */
+.hero__shade {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(10, 27, 56, 0.52) 0%, rgba(10, 27, 56, 0) 21%),
+    linear-gradient(
+      90deg,
+      rgba(10, 27, 56, 0.66) 0%,
+      rgba(10, 27, 56, 0.46) 28%,
+      rgba(10, 27, 56, 0.1) 55%,
+      rgba(10, 27, 56, 0) 70%
+    ),
+    linear-gradient(0deg, rgba(10, 27, 56, 0.3) 0%, rgba(10, 27, 56, 0) 22%);
+}
+
+/* ---------- top bar: brand + levels entry ---------- */
+
+.hero__top {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding:
+    max(14px, env(safe-area-inset-top))
+    max(18px, env(safe-area-inset-right))
+    10px
+    max(18px, env(safe-area-inset-left));
+  animation: fade-in 480ms ease both;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+.brand__mark {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 14px;
+  color: #ffffff;
+  background: linear-gradient(180deg, #ffc95e, #f5a71b);
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  box-shadow: 0 4px 12px rgba(10, 27, 56, 0.35);
+}
+
+.brand__mark svg {
+  width: 22px;
+  height: 22px;
+}
+
+.brand__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.brand__name {
+  font-family: var(--font-game);
+  font-size: 1.12rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #ffffff;
+  text-shadow: 0 2px 10px rgba(10, 27, 56, 0.55);
+  line-height: 1.15;
+}
+
+.brand__sub {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 4px rgba(10, 27, 56, 0.85), 0 2px 8px rgba(10, 27, 56, 0.5);
+}
+
+/* glass pill opening the level overlay */
+.btn-levels {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(255, 255, 255, 0.5);
+  background: rgba(10, 27, 56, 0.58);
+  color: #ffffff;
+  font: 700 0.88rem/1 var(--font-game);
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition: background 140ms ease, transform 100ms ease;
+  touch-action: manipulation;
+}
+
+.btn-levels svg {
+  width: 16px;
+  height: 16px;
+  color: #ffc95e;
+}
+
+.btn-levels:hover {
+  background: rgba(10, 27, 56, 0.62);
+}
+
+.btn-levels:active {
+  transform: scale(0.97);
+}
+
+/* ---------- hero body: two-column desktop grid ----------
+ * Desktop areas:   copy   | fox
+ *                   actions| fox     (fox spans both rows, grounded low)
+ * Phone/tablet-portrait stacks the same DOM: copy → fox → actions. */
+
+.hero__body {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1.04fr) minmax(0, 0.96fr);
+  grid-template-rows: auto 1fr;
+  grid-template-areas:
+    "copy fox"
+    "actions fox";
+  column-gap: clamp(24px, 4vw, 72px);
+  align-content: center;
+  width: 100%;
+  max-width: 1680px;
+  margin-inline: auto;
+  padding:
+    clamp(6px, 1.5vh, 20px)
+    max(clamp(24px, 4.5vw, 64px), env(safe-area-inset-right))
+    clamp(14px, 3vh, 34px)
+    max(clamp(24px, 4.5vw, 64px), env(safe-area-inset-left));
+}
+
+/* ---------- left column: messaging ---------- */
+
+.hero__copy {
+  grid-area: copy;
+  max-width: 620px;
+}
+
+.hero__headline {
+  margin: 0;
+  font-family: var(--font-game);
+  font-size: clamp(2.15rem, 4.6vw, 4.35rem);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  color: #ffffff;
+  text-wrap: balance;
+  text-shadow:
+    0 3px 10px rgba(10, 27, 56, 0.5),
+    0 1px 2px rgba(10, 27, 56, 0.35);
+  animation: rise-in 520ms cubic-bezier(0.2, 0.7, 0.3, 1) 60ms both;
+}
+
+.headline-accent {
+  color: #ffc95e;
+}
+
+.hero__tagline {
+  margin: clamp(10px, 1.6vh, 16px) 0 0;
+  font-family: var(--font-game);
+  font-size: clamp(1.05rem, 1.6vw, 1.4rem);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.94);
+  text-shadow: 0 2px 8px rgba(10, 27, 56, 0.55);
+  animation: rise-in 520ms cubic-bezier(0.2, 0.7, 0.3, 1) 140ms both;
+}
+
+.hero__desc {
+  margin: clamp(8px, 1.4vh, 14px) 0 0;
+  max-width: 46ch;
+  font-size: clamp(0.95rem, 1.15vw, 1.08rem);
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.88);
+  text-shadow: 0 1px 6px rgba(10, 27, 56, 0.5);
+  animation: rise-in 520ms cubic-bezier(0.2, 0.7, 0.3, 1) 200ms both;
+}
+
+.hero__desc strong {
+  color: #ffd875;
+  font-weight: 800;
+}
+
+/* ---------- right column: the approved fox ---------- */
+
+.hero__fox {
+  grid-area: fox;
+  position: relative;
+  align-self: end;
+  justify-self: center;
+  width: min(100%, 520px);
+  height: clamp(300px, 52vh, 560px);
+  margin-bottom: clamp(14px, 4.5vh, 52px);
+  animation: fox-enter 640ms cubic-bezier(0.2, 0.7, 0.3, 1) 120ms both;
+}
+
+/* aspect ratio 1199×1312 reserved by the width/height attributes on the img
+ * (no layout shift); contain keeps the whole character visible, always */
+.hero-fox__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* gentle idle float — 4px max, never a bounce (paused under reduced motion) */
+.hero-fox__img {
+  animation: fox-bob 3.8s ease-in-out 800ms infinite;
+}
+
+/* soft contact shadow grounding the feet on the painted road (the artwork's
+ * feet sit slightly right of its bounding-box center, so the shadow follows) */
+.hero-fox__shadow {
+  position: absolute;
+  left: 54%;
+  bottom: 1%;
+  width: 54%;
+  height: 8%;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(50% 50% at 50% 50%, rgba(12, 26, 48, 0.44), rgba(12, 26, 48, 0) 72%);
+  filter: blur(2px);
+  pointer-events: none;
+}
+
+/* ---------- left column: actions ---------- */
+
+.hero__actions {
+  grid-area: actions;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: clamp(10px, 1.8vh, 16px);
+  margin-top: clamp(14px, 2.4vh, 24px);
+  max-width: 620px;
+  animation: rise-in 560ms cubic-bezier(0.2, 0.7, 0.3, 1) 260ms both;
+}
+
+/* primary CTA — large rounded gold game button */
+.btn-play {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 13px;
+  min-height: clamp(54px, 6.4vh, 64px);
+  padding: 0 clamp(30px, 3vw, 44px);
+  border-radius: 999px;
+  border: 2px solid #b56f06;
+  background: linear-gradient(180deg, #ffd45e 0%, #ffb52e 58%, #f79f17 100%);
+  color: #4a2c07;
+  font-family: var(--font-game);
+  font-size: clamp(1.18rem, 1.8vw, 1.45rem);
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  box-shadow:
+    0 12px 30px rgba(226, 142, 10, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  transition: transform 110ms ease, box-shadow 140ms ease, filter 140ms ease;
+  touch-action: manipulation;
+}
+
+.btn-play svg {
+  width: 1.05em;
+  height: 1.05em;
+  flex: none;
+  filter: drop-shadow(0 1px 1px rgba(74, 44, 7, 0.35));
+}
+
+.btn-play:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.05);
+  box-shadow:
+    0 14px 32px rgba(240, 158, 24, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.btn-play:active {
+  transform: translateY(1px) scale(0.985);
+  box-shadow:
+    0 6px 16px rgba(240, 158, 24, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+/* mode selection — compact segmented control, clearly secondary to Play */
+.mode-toggle {
+  display: inline-flex;
+  gap: 4px;
+  padding: 5px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(255, 255, 255, 0.24);
+  background: rgba(10, 27, 56, 0.5);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.mode-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  font: 700 0.92rem/1 var(--font-game);
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+  touch-action: manipulation;
+}
+
+.mode-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* selected state: filled white pill + dark text + gold inner ring and icon
+ * (never color alone — aria-pressed carries the state for assistive tech) */
+.mode-btn.is-active {
+  background: #ffffff;
+  color: #16336b;
+  box-shadow:
+    0 2px 8px rgba(10, 27, 56, 0.35),
+    inset 0 0 0 2px rgba(245, 167, 27, 0.45);
+}
+
+.mode-btn.is-active svg {
+  color: #f5a71b;
+}
+
+.mode-btn:not(.is-active):hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+
+/* feature chips — compact translucent benefits, strictly secondary */
+.hero__chips {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin: 2px 0 0;
+  padding: 0;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  background: rgba(255, 255, 255, 0.13);
+  color: #ffffff;
+  font-size: 0.83rem;
+  font-weight: 600;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: rise-in 480ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+.chip:nth-child(1) { animation-delay: 380ms; }
+.chip:nth-child(2) { animation-delay: 450ms; }
+.chip:nth-child(3) { animation-delay: 520ms; }
+
+.chip svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  color: #ffc95e;
+}
+
+/* ---------- status note + dev tools ---------- */
+
+.start-note {
+  position: absolute;
+  left: 50%;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 4;
+  max-width: min(92%, 480px);
+  margin: 0;
+  padding: 10px 18px;
+  border-radius: 12px;
+  background: rgba(148, 29, 22, 0.92);
+  color: #ffffff;
+  font-size: 0.88rem;
+  text-align: center;
+  box-shadow: 0 8px 22px rgba(10, 27, 56, 0.4);
+}
+
+.dev-tools {
+  position: absolute;
+  left: 12px;
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  z-index: 5;
+}
+
+/* ---------- level selection overlay ---------- */
+
+.level-modal {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding:
+    max(16px, env(safe-area-inset-top))
+    max(16px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-left));
+  background: rgba(7, 20, 42, 0.62);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: fade-in 220ms ease both;
+}
+
+.level-modal__card {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 780px);
+  max-height: min(88dvh, 760px);
+  background: #ffffff;
+  border-radius: 22px;
+  box-shadow: 0 24px 64px rgba(7, 20, 42, 0.5);
+  overflow: hidden;
+  animation: pop-in 260ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+.level-modal__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 18px 20px 8px 22px;
+}
+
+.level-modal__title {
+  margin: 0;
+  font-family: var(--font-game);
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #16336b;
+}
+
+.level-modal__progress {
+  margin: 3px 0 0;
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: #66788c;
+}
+
+.level-modal__close {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 12px;
+  border: 2px solid #dbe4f0;
+  background: #f4f7fb;
+  color: #4b5b6b;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, transform 100ms ease;
+}
+
+.level-modal__close svg {
+  width: 18px;
+  height: 18px;
+}
+
+.level-modal__close:hover {
+  background: #e8eefc;
+  color: #16336b;
+}
+
+.level-modal__close:active {
+  transform: scale(0.94);
+}
+
+/* compact level cards (engine data only) */
+.level-list {
+  list-style: none;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+  gap: 10px;
+  padding: 10px 20px 20px 22px;
+  overflow-y: auto;
+  align-content: start;
+}
+
+.level-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas:
+    "num title"
+    "num meta"
+    "num stars";
+  row-gap: 3px;
+  column-gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 2px solid #dbe4f0;
+  background: #f8fafd;
+  font: inherit;
+  color: #1f2933;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, transform 100ms ease, box-shadow 120ms ease;
+}
+
+.level-card:hover:not(:disabled) {
+  border-color: #24418a;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.12);
+}
+
+/* the learner's next level — gold ring + tag (shape + text, not color only) */
+.level-card.is-current {
+  border-color: #f0a81c;
+  background: #fff8e8;
+  box-shadow: 0 0 0 3px rgba(240, 168, 28, 0.22);
+}
+
+.level-card__tag {
+  position: absolute;
+  top: 5px;
+  right: 8px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: #f5a71b;
+  color: #4a2c07;
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  display: none;
+}
+
+.level-card.is-current .level-card__tag {
+  display: inline-block;
+}
+
+.level-card:disabled {
+  opacity: 0.55;
+  filter: saturate(0.55);
+  cursor: not-allowed;
+}
+
+.level-card__num {
+  grid-area: num;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #24418a;
+  color: #ffffff;
+  font-family: var(--font-game);
+  font-weight: 800;
+  font-size: 0.95rem;
+}
+
+.level-card:disabled .level-card__num {
+  background: #8d9aab;
+  color: #eef2f7;
+}
+
+.level-card__num svg {
+  width: 15px;
+  height: 15px;
+}
+
+.level-card__title {
+  grid-area: title;
+  font-weight: 700;
+  font-size: 0.93rem;
+  line-height: 1.2;
+  min-height: 2.4em; /* two-line titles keep every card the same height */
+}
+
+.level-card__meta {
+  grid-area: meta;
+  font-size: 0.74rem;
+  color: #5b6b7d;
+}
+
+.level-card__stars {
+  grid-area: stars;
+  color: #d99513;
+  font-size: 0.85rem;
+  letter-spacing: 2px;
+  white-space: nowrap;
+}
+
+.level-card:disabled .level-card__stars {
+  color: #aeb9c6;
+}
+
+/* ---------- keyboard focus ---------- */
+
+.screen-start :focus-visible {
+  outline: 3px solid #ffd875;
+  outline-offset: 3px;
+}
+
+.btn-play:focus-visible,
+.level-modal__close:focus-visible {
+  outline-color: #ffffff;
+}
+
+.level-card:focus-visible,
+.btn-levels:focus-visible,
+.mode-btn:focus-visible {
+  outline-color: #ffd875;
+}
+
+/* ---------- entrance animations ---------- */
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fox-enter {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fox-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ==========================================================================
+ * Responsive — tablet (≤1100px), tablet portrait, phone (≤680px)
+ * ========================================================================= */
+
+/* ---- tablet landscape / small desktop: same two columns, tighter ---- */
+@media (max-width: 1100px) {
+  .hero__body {
+    column-gap: clamp(16px, 3vw, 40px);
+    padding-inline: max(18px, env(safe-area-inset-left)) max(18px, env(safe-area-inset-right));
+  }
+
+  .hero__copy {
+    max-width: 540px;
+  }
+
+  .hero__headline {
+    font-size: clamp(1.95rem, 4vw, 3.1rem);
+  }
+
+  .hero__fox {
+    width: min(100%, 470px);
+    height: clamp(260px, 50vh, 500px);
+  }
+}
+
+/* ---- tablet portrait: stacked offset hero, fox still a focal point ---- */
+@media (max-width: 1100px) and (orientation: portrait) {
+  .hero__body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    grid-template-areas:
+      "copy"
+      "fox"
+      "actions";
+    row-gap: clamp(10px, 2vh, 20px);
+    align-content: start;
+    padding-top: clamp(4px, 1.5vh, 16px);
+  }
+
+  .hero__copy {
+    max-width: 600px;
+  }
+
+  .hero__fox {
+    width: min(56vw, 400px);
+    height: auto;
+    aspect-ratio: 1199 / 1312; /* reserved ratio, no shift */
+    justify-self: center;
+    margin-block: 0 clamp(6px, 2vh, 22px);
+  }
+
+  .hero__actions {
+    align-items: center;
+    text-align: center;
+    margin-top: 0;
+  }
+
+  .hero__chips {
+    justify-content: center;
+  }
+
+  .hero__bg {
+    object-position: 50% 66%;
+  }
+}
+
+/* ---- phone: deliberate vertical composition for thumbs ---- */
+@media (max-width: 680px) {
+  .hero__bg {
+    /* portrait crop centers on the road and the countryside around it */
+    object-position: 53% 60%;
+  }
+
+  .hero__shade {
+    /* vertical readability gradient: sky side darkens for text, road side
+     * stays bright for the fox */
+    background:
+      linear-gradient(180deg, rgba(10, 27, 56, 0.58) 0%, rgba(10, 27, 56, 0.3) 26%, rgba(10, 27, 56, 0.02) 44%),
+      linear-gradient(0deg, rgba(10, 27, 56, 0.26) 0%, rgba(10, 27, 56, 0) 24%);
+  }
+
+  .hero__top {
+    padding-top: max(10px, env(safe-area-inset-top));
+    padding-inline: max(14px, env(safe-area-inset-left)) max(14px, env(safe-area-inset-right));
+  }
+
+  .brand__mark {
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+  }
+
+  .brand__mark svg {
+    width: 19px;
+    height: 19px;
+  }
+
+  .brand__name {
+    font-size: 0.98rem;
+  }
+
+  .brand__sub {
+    font-size: 0.58rem;
+    letter-spacing: 0.13em;
+  }
+
+  .btn-levels {
+    min-height: 40px;
+    padding: 7px 13px;
+    font-size: 0.78rem;
+  }
+
+  .hero__body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    grid-template-areas:
+      "copy"
+      "fox"
+      "actions";
+    row-gap: clamp(8px, 1.8vh, 16px);
+    align-content: start;
+    padding-inline: max(16px, env(safe-area-inset-left)) max(16px, env(safe-area-inset-right));
+    padding-bottom: max(18px, env(safe-area-inset-bottom));
+  }
+
+  .hero__copy {
+    text-align: center;
+  }
+
+  .hero__headline {
+    font-size: clamp(1.72rem, 8.2vw, 2.35rem);
+    line-height: 1.08;
+  }
+
+  .hero__tagline {
+    font-size: clamp(0.95rem, 3.6vw, 1.1rem);
+  }
+
+  /* supporting marketing copy steps aside so fox + CTA stay reachable */
+  .hero__desc {
+    display: none;
+  }
+
+  .hero__fox {
+    width: min(78vw, 380px);
+    height: auto;
+    aspect-ratio: 1199 / 1312;
+    justify-self: center;
+    margin-bottom: clamp(4px, 1.5vh, 14px);
+  }
+
+  .hero__actions {
+    align-items: center;
+    gap: 12px;
+    margin-top: 0;
+  }
+
+  .btn-play {
+    width: 100%;
+    max-width: 360px;
+    min-height: 58px;
+    font-size: 1.22rem;
+  }
+
+  .mode-toggle {
+    width: 100%;
+    max-width: 360px;
+  }
+
+  .mode-btn {
+    flex: 1;
+    min-height: 44px;
+    padding: 0 10px;
+    font-size: 0.88rem;
+  }
+
+  .hero__chips {
+    justify-content: center;
+    gap: 9px;
+  }
+
+  .chip {
+    padding: 7px 11px;
+    font-size: 0.74rem;
+    gap: 6px;
+    border-radius: 12px;
+  }
+
+  .chip svg {
+    width: 13px;
+    height: 13px;
+  }
+
+  .level-modal {
+    padding: 12px;
+  }
+
+  .level-modal__card {
+    max-height: 90dvh;
+    border-radius: 18px;
+  }
+
+  .level-list {
+    grid-template-columns: minmax(150px, 1fr);
+    gap: 8px;
+    padding: 8px 12px 14px 14px;
+  }
+
+  .level-card {
+    padding: 10px 12px;
+  }
+
+  .level-modal__head {
+    padding: 14px 14px 6px 16px;
+  }
+}
+
+/* ---- very small phones: just typography, never clipping ---- */
+@media (max-width: 360px) {
+  .hero__headline {
+    font-size: 1.55rem;
+  }
+
+  .brand__sub {
+    display: none;
+  }
+
+  .btn-levels span {
+    display: none;
+  }
+
+  .btn-levels svg {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+/* ---- short landscape viewports: compress rhythm, keep everything ---- */
+@media (max-height: 520px) and (min-width: 681px) {
+  .hero__headline {
+    font-size: clamp(1.7rem, 4.2vw, 2.4rem);
+  }
+
+  .hero__desc {
+    display: none;
+  }
+
+  .hero__fox {
+    height: clamp(220px, 46vh, 300px);
+  }
+
+  .hero__actions {
+    gap: 8px;
+  }
+}
+
+/* ---------- reduced motion: entrance + idle float off, layout intact ---- */
+@media (prefers-reduced-motion: reduce) {
+  .hero__top,
+  .hero__copy,
+  .hero__copy > *,
+  .hero__actions,
+  .hero__actions > *,
+  .hero__chips .chip,
+  .hero__fox,
+  .hero-fox__img,
+  .level-modal,
+  .level-modal__card {
+    animation: none;
+  }
+
+  .btn-levels,
+  .btn-play,
+  .mode-btn,
+  .level-card,
+  .level-modal__close {
+    transition: none;
+  }
+}

@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Definite Dash — English Article Runner (Prototype)</title>
+  <title>Definite Dash — English Article Runner</title>
   <link rel="stylesheet" href="css/game.css">
+  <link rel="stylesheet" href="css/start.css">
 </head>
 <body>
   <div id="app" class="app">
@@ -19,32 +20,141 @@
     </section>
 
     <!-- ============================================================
-         Start screen: title, play button, level selector, dev tools
+         Start screen — cinematic hero over the approved countryside
+         artwork with the approved fox mascot. All text is real HTML
+         (responsive, accessible, editable); nothing is baked into
+         the art. Play resumes the learner's current level; the
+         Levels button opens the level-selection overlay.
       ============================================================ -->
     <section id="screen-start" class="screen screen-start hidden">
-      <header class="start-header">
-        <h1 class="game-title">Definite Dash</h1>
-        <p class="game-tagline">English Article Runner <span class="proto-badge">prototype</span></p>
-      </header>
+      <div class="hero">
+        <!-- Approved scenic backdrop (final art; crop tuned per breakpoint) -->
+        <img class="hero__bg" src="assets/backgrounds/hero-countryside.webp" alt="" aria-hidden="true"
+             draggable="false" decoding="async" fetchpriority="high" width="1536" height="1024">
+        <!-- Localized readability gradient: dark navy on the text side,
+             fully transparent over the fox/right scenery -->
+        <div class="hero__shade" aria-hidden="true"></div>
 
-      <div class="start-actions">
-        <button id="btn-play" class="btn btn-primary btn-large" type="button">Play</button>
-        <div class="mode-toggle" role="radiogroup" aria-label="Game mode">
-          <button id="btn-mode-learn" class="btn btn-toggle is-active" type="button" aria-pressed="true">Learn</button>
-          <button id="btn-mode-arcade" class="btn btn-toggle" type="button" aria-pressed="false">Arcade</button>
+        <header class="hero__top">
+          <div class="brand">
+            <span class="brand__mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 3 14h7l-1 8 12-14h-7l1-6z"/></svg>
+            </span>
+            <span class="brand__text">
+              <span class="brand__name">Definite Dash</span>
+              <span class="brand__sub">English Article Runner</span>
+            </span>
+          </div>
+          <button id="btn-levels" class="btn-levels" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M5 21V4"/><path d="M5 4h13l-2.5 4L18 12H5"/>
+            </svg>
+            <span id="hero-progress">0 / 10 levels</span>
+          </button>
+        </header>
+
+        <div class="hero__body">
+          <div class="hero__copy">
+            <h1 class="hero__headline">
+              English <span class="headline-accent">Adventure</span> Starts&nbsp;Here!
+            </h1>
+            <p class="hero__tagline">Run. Learn. Choose the right path.</p>
+            <p class="hero__desc">
+              Master <strong>A</strong>, <strong>An</strong>, <strong>The</strong> and
+              <strong>No&nbsp;Article</strong> while your fox races through each challenge.
+            </p>
+          </div>
+
+          <!-- Approved fox mascot (final art): dominant focal character,
+               grounded on the road with a soft contact shadow -->
+          <div class="hero__fox">
+            <img class="hero-fox__img" src="assets/characters/fox-hero.webp" draggable="false"
+                 alt="A friendly orange fox wearing a blue scarf and backpack, ready to run"
+                 decoding="async" fetchpriority="high" width="1199" height="1312">
+            <div class="hero-fox__shadow" aria-hidden="true"></div>
+          </div>
+
+          <div class="hero__actions">
+            <button id="btn-play" class="btn-play" type="button">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M8 5.6v12.8a1 1 0 0 0 1.5.86l10.5-6.4a1 1 0 0 0 0-1.72L9.5 4.74A1 1 0 0 0 8 5.6z"/>
+              </svg>
+              <span id="btn-play-label">Play Now</span>
+            </button>
+
+            <div class="mode-toggle" role="radiogroup" aria-label="Game mode">
+              <button id="btn-mode-learn" class="mode-btn is-active" type="button" aria-pressed="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2z"/>
+                  <path d="M22 4h-6a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h7z"/>
+                </svg>
+                <span>Learn</span>
+              </button>
+              <button id="btn-mode-arcade" class="mode-btn" type="button" aria-pressed="false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M13 2 3 14h7l-1 8 12-14h-7l1-6z"/>
+                </svg>
+                <span>Arcade</span>
+              </button>
+            </div>
+
+            <ul class="hero__chips" aria-label="What awaits you">
+              <li class="chip">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12v5c0 1.7 2.7 3 6 3s6-1.3 6-3v-5"/>
+                </svg>
+                Grammar Skills
+              </li>
+              <li class="chip">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z"/>
+                </svg>
+                Fun Challenges
+              </li>
+              <li class="chip">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M22 7 13.5 15.5 8.5 10.5 2 17"/><path d="M16 7h6v6"/>
+                </svg>
+                Track Progress
+              </li>
+            </ul>
+          </div>
         </div>
+
+        <p id="start-note" class="start-note hidden" role="status"></p>
       </div>
-
-      <nav class="level-select" aria-label="Level selection">
-        <h2 class="level-select-title">Levels</h2>
-        <ul id="level-list" class="level-list"></ul>
-      </nav>
-
-      <p id="start-note" class="start-note hidden" role="status"></p>
 
       <!-- Development-only controls: js/game.js unhides these when DEBUG = true. -->
       <div class="dev-tools hidden" id="dev-tools">
         <button id="btn-reset-progress" class="btn btn-dev" type="button">Reset progress (dev)</button>
+      </div>
+
+      <!-- Level selection overlay: the engine owns unlocks, stars and
+           progression; cards only render engine data and start levels
+           through the existing startLevel flow. -->
+      <div id="level-modal" class="level-modal hidden" role="dialog" aria-modal="true"
+           aria-labelledby="level-modal-title">
+        <div class="level-modal__card">
+          <header class="level-modal__head">
+            <div>
+              <h2 id="level-modal-title" class="level-modal__title">Choose a level</h2>
+              <p id="level-modal-progress" class="level-modal__progress">—</p>
+            </div>
+            <button id="btn-levels-close" class="level-modal__close" type="button" aria-label="Close level selection">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+                   stroke-linecap="round" aria-hidden="true">
+                <path d="M18 6 6 18M6 6l12 12"/>
+              </svg>
+            </button>
+          </header>
+          <ul id="level-list" class="level-list"></ul>
+        </div>
       </div>
     </section>
 
@@ -58,7 +168,30 @@
            gates and collisions are owned by the engine + js/game.js;
            pointer input anywhere in this element selects a lane. -->
       <div id="runner" class="runner">
+        <!-- Far environment: CSS sky + meadow + distant hills (no image). -->
         <div class="scene" aria-hidden="true"></div>
+        <!-- Approved side scenery, framing the road: transparent PNGs
+             (left = river / stone bridge / waterfall, right = windmill /
+             village / hay bales). Purely static; sized per device class by
+             js/game.js. Always UNDER the road surface, so they can never
+             cover the lanes, fox or gates. -->
+        <img id="scenery-left" class="scenery scenery-left" alt="" draggable="false"
+             decoding="async" src="assets/environment/scenery-left.png" aria-hidden="true">
+        <img id="scenery-right" class="scenery scenery-right" alt="" draggable="false"
+             decoding="async" src="assets/environment/scenery-right.png" aria-hidden="true">
+        <!-- Fully code-built perspective road: a soft grass shoulder
+             (blurred, wide) under a warm sand trapezoid. Both shapes are
+             clip-path polygons drawn by js/game.js through the SAME
+             projection every moving object uses — no road photo anywhere. -->
+        <div id="road-edge" class="road-edge" aria-hidden="true"></div>
+        <div id="road-surface" class="road-surface" aria-hidden="true"></div>
+        <!-- Edge-wear bands: soft darkening along the sand's slanted sides
+             (polygons drawn by js/game.js through the shared projection),
+             blurring the road→shoulder transition into something intentional. -->
+        <div id="road-shading" class="road-shading" aria-hidden="true"><i></i><i></i></div>
+        <!-- Soft wheel-wear tracks down each lane (perspective polygons set
+             by js/game.js through the same projection as the wear bands). -->
+        <div id="road-tracks" class="road-tracks" aria-hidden="true"><i></i><i></i><i></i></div>
         <!-- Perspective road-motion layer: pooled lane dashes, stones and
              roadside tufts recycled near the horizon (driven by js/game.js).
              Children keep individual z-indexes so they interleave with the
@@ -95,16 +228,70 @@
 
       <!-- HUD + question overlay: reads over the sky area of the scene -->
       <div class="game-top">
-        <header class="hud">
-          <div class="hud-left">
-            <span id="hud-level" class="hud-item hud-level">Level</span>
-            <span id="hud-question" class="hud-item">– / –</span>
+        <header class="hud" aria-label="Game status">
+          <div class="hud-group hud-group--main">
+            <button id="btn-pause" class="hud-pause" type="button" aria-label="Pause game">
+              <svg class="hud-pause__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <rect x="6" y="5" width="4.4" height="14" rx="2"></rect>
+                <rect x="13.6" y="5" width="4.4" height="14" rx="2"></rect>
+              </svg>
+            </button>
+
+            <div class="hud-pill hud-pill--level" title="Lesson">
+              <svg class="hud-icon hud-icon--star" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <defs>
+                  <linearGradient id="hud-grad-star" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" stop-color="#ffe08a"></stop>
+                    <stop offset="1" stop-color="#f5a623"></stop>
+                  </linearGradient>
+                </defs>
+                <path fill="url(#hud-grad-star)" d="M12 2.6l2.7 5.6 6.1.8-4.5 4.2 1.2 6-5.5-3-5.5 3 1.2-6L3.2 9l6.1-.8z"></path>
+              </svg>
+              <span id="hud-level" class="hud-pill__text">Level</span>
+            </div>
+
+            <div id="hud-progress" class="hud-pill hud-pill--progress">
+              <svg class="hud-icon hud-icon--flag" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path fill="#3f7d3b" d="M6 2.8c.66 0 1.2.54 1.2 1.2v15.2a1.2 1.2 0 1 1-2.4 0V4c0-.66.54-1.2 1.2-1.2z"></path>
+                <path fill="#4caf50" d="M7.2 3.4h11.4l-2.9 3.9 2.9 3.9H7.2z"></path>
+              </svg>
+              <span id="hud-question" class="hud-pill__text hud-pill__text--strong">– / –</span>
+              <span class="hud-progress__track" aria-hidden="true">
+                <span id="hud-progress-fill" class="hud-progress__fill"></span>
+              </span>
+            </div>
           </div>
-          <div class="hud-right">
-            <span id="hud-score" class="hud-item">0 pts</span>
-            <span id="hud-streak" class="hud-item">Streak 0</span>
-            <span id="hud-lives" class="hud-item hud-lives hidden" aria-label="Lives"></span>
-            <button id="btn-pause" class="btn btn-small" type="button" aria-label="Pause game">Pause</button>
+
+          <div class="hud-group hud-group--stats">
+            <div id="hud-score-pill" class="hud-pill hud-pill--score" title="Score">
+              <svg class="hud-icon hud-icon--coin" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <defs>
+                  <linearGradient id="hud-grad-coin" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" stop-color="#ffdf6b"></stop>
+                    <stop offset="1" stop-color="#f0a92c"></stop>
+                  </linearGradient>
+                </defs>
+                <circle fill="url(#hud-grad-coin)" cx="12" cy="12" r="9.4"></circle>
+                <circle fill="none" stroke="#b97d13" stroke-width="1.7" cx="12" cy="12" r="6.2"></circle>
+                <path fill="#b97d13" d="M12 7.6l1 2.1 2.3.3-1.7 1.6.4 2.3-2-1.1-2 1.1.4-2.3-1.7-1.6 2.3-.3z"></path>
+              </svg>
+              <span id="hud-score" class="hud-pill__value">0</span>
+            </div>
+
+            <div id="hud-streak-pill" class="hud-pill hud-pill--streak" title="Streak">
+              <svg class="hud-icon hud-icon--flame" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <defs>
+                  <linearGradient id="hud-grad-flame" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" stop-color="#ffd23f"></stop>
+                    <stop offset="1" stop-color="#ff5a1f"></stop>
+                  </linearGradient>
+                </defs>
+                <path fill="url(#hud-grad-flame)" d="M13.3 1.9c.5 3.8-2.6 5.3-2.6 8.3 0 1.6 1.3 2.9 2.9 2.9s2.9-1.3 2.9-2.9c0-.6-.2-1.2-.5-1.7 1.5 1.2 2.4 3 2.4 5 0 3.6-3 6.6-6.6 6.6S5.2 17.1 5.2 13.5c0-5.8 6.8-7.1 8.1-11.6z"></path>
+              </svg>
+              <span id="hud-streak" class="hud-pill__value">0</span>
+            </div>
+
+            <div id="hud-lives" class="hud-pill hud-pill--lives hidden" role="img" aria-label="Lives"></div>
           </div>
         </header>
 
