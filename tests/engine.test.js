@@ -1133,14 +1133,14 @@ describe('answer resolution and scoring', () => {
     assert.equal(mastery.mastered, false);
   });
 
-  test('feedback delay comes from the JSON settings', () => {
+  test('only correct feedback exposes the configured auto-continue delay', () => {
     const { engine, clock } = makeEngine();
     engine.startLevel(1);
     const right = answerOnce(engine, clock, { correct: true });
     assert.equal(right.feedbackDelayMs, gameData.settings.feedbackDelayMs);
     engine.continueAfterFeedback();
     const wrong = answerOnce(engine, clock, { correct: false });
-    assert.equal(wrong.feedbackDelayMs, gameData.settings.wrongAnswerFeedbackDelayMs);
+    assert.equal(wrong.feedbackDelayMs, null);
   });
 });
 
@@ -1940,6 +1940,65 @@ describe('persistence and storage', () => {
       const { engine } = makeEngine({ storage });
       assert.deepEqual(engine.getProgress().passedLevels, []);
     }
+  });
+
+  test('stored progress is clamped to known ids and sane production ranges', () => {
+    const knownQuestion = gameData.questions[0].id;
+    const storage = seededStorage({
+      version: 1,
+      passedLevels: [1, 999],
+      levels: {
+        1: {
+          completions: 2.9,
+          bestAccuracy: 99,
+          bestStars: 99,
+          bestScore: 400,
+          lastAccuracy: -3,
+          lastStars: 12,
+          lastScore: 250,
+          lastCompletedAt: 'not-a-date',
+        },
+        999: { completions: 100, bestStars: 3 },
+      },
+      mastery: {
+        'zero-meals': { attempts: 5, correct: 999 },
+        'removed-rule': { attempts: 20, correct: 20 },
+      },
+      totalAttempts: 3,
+      totalCorrect: 999,
+      recentQuestions: [
+        'removed-question',
+        ...Array(gameData.settings.recentQuestionWindow + 4).fill(knownQuestion),
+      ],
+    });
+    const { engine } = makeEngine({ storage });
+    const progress = engine.getProgress();
+    assert.deepEqual(progress.passedLevels, [1]);
+    assert.deepEqual(Object.keys(progress.levels), ['1']);
+    assert.equal(progress.levels['1'].bestAccuracy, 1);
+    assert.equal(progress.levels['1'].lastAccuracy, 0);
+    assert.equal(progress.levels['1'].bestStars, 3);
+    assert.equal(progress.levels['1'].lastStars, 3);
+    assert.equal(progress.levels['1'].lastCompletedAt, null);
+    assert.deepEqual(progress.mastery['zero-meals'], { attempts: 5, correct: 5 });
+    assert.equal(progress.mastery['removed-rule'], undefined);
+    assert.equal(progress.totalCorrect, progress.totalAttempts);
+    assert.equal(progress.recentQuestions.length, gameData.settings.recentQuestionWindow);
+    assert.ok(progress.recentQuestions.every((id) => id === knownQuestion));
+  });
+
+  test('an unknown stored progress version resets safely', () => {
+    const storage = seededStorage({
+      version: 999,
+      passedLevels: [1],
+      totalAttempts: 50,
+      totalCorrect: 50,
+    });
+    const { engine } = makeEngine({ storage });
+    const progress = engine.getProgress();
+    assert.deepEqual(progress.passedLevels, []);
+    assert.equal(progress.totalAttempts, 0);
+    assert.equal(progress.totalCorrect, 0);
   });
 
   test('storage write failures never crash the engine', () => {

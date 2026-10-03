@@ -383,7 +383,6 @@ function collectDataProblems(data) {
   }
   for (const key of [
     'recentQuestionWindow',
-    'defaultQuestionCount',
     'minimumQuestionsToPass',
     'startingLivesArcade',
     'minimumAttemptsForMastery',
@@ -392,7 +391,7 @@ function collectDataProblems(data) {
       err(`settings.${key} must be an integer >= 1.`);
     }
   }
-  for (const key of ['feedbackDelayMs', 'wrongAnswerFeedbackDelayMs']) {
+  for (const key of ['feedbackDelayMs']) {
     if (typeof settings[key] !== 'number' || !Number.isFinite(settings[key]) || settings[key] < 0) {
       err(`settings.${key} must be a number >= 0.`);
     }
@@ -655,11 +654,17 @@ function toCount(value) {
   return Number.isFinite(value) && value >= 0 ? Math.trunc(value) : 0;
 }
 
+function toUnitRatio(value) {
+  return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
+}
+
 function sanitizeProgress(raw, data) {
   const progress = createDefaultProgress();
-  if (!isPlainObject(raw)) return progress;
+  if (!isPlainObject(raw) || raw.version !== progress.version) return progress;
 
   const levelIdSet = new Set(data.levels.map((l) => l.id));
+  const ruleIdSet = new Set(data.ruleCatalog.map((rule) => rule.id));
+  const questionIdSet = new Set(data.questions.map((question) => question.id));
   if (Array.isArray(raw.passedLevels)) {
     progress.passedLevels = [
       ...new Set(
@@ -671,29 +676,40 @@ function sanitizeProgress(raw, data) {
   }
   if (isPlainObject(raw.levels)) {
     for (const [id, record] of Object.entries(raw.levels)) {
-      if (!isPlainObject(record)) continue;
-      progress.levels[id] = {
+      const numericId = Number(id);
+      if (!levelIdSet.has(numericId) || !isPlainObject(record)) continue;
+      const canonicalId = String(numericId);
+      progress.levels[canonicalId] = {
         completions: toCount(record.completions),
-        bestAccuracy: Number.isFinite(record.bestAccuracy) ? record.bestAccuracy : 0,
-        bestStars: toCount(record.bestStars),
+        bestAccuracy: toUnitRatio(record.bestAccuracy),
+        bestStars: Math.min(3, toCount(record.bestStars)),
         bestScore: toCount(record.bestScore),
-        lastAccuracy: Number.isFinite(record.lastAccuracy) ? record.lastAccuracy : 0,
-        lastStars: toCount(record.lastStars),
+        lastAccuracy: toUnitRatio(record.lastAccuracy),
+        lastStars: Math.min(3, toCount(record.lastStars)),
         lastScore: toCount(record.lastScore),
-        lastCompletedAt: typeof record.lastCompletedAt === 'string' ? record.lastCompletedAt : null,
+        lastCompletedAt:
+          typeof record.lastCompletedAt === 'string' && Number.isFinite(Date.parse(record.lastCompletedAt))
+            ? record.lastCompletedAt
+            : null,
       };
     }
   }
   if (isPlainObject(raw.mastery)) {
     for (const [ruleId, stats] of Object.entries(raw.mastery)) {
-      if (!isPlainObject(stats)) continue;
-      progress.mastery[ruleId] = { attempts: toCount(stats.attempts), correct: toCount(stats.correct) };
+      if (!ruleIdSet.has(ruleId) || !isPlainObject(stats)) continue;
+      const attempts = toCount(stats.attempts);
+      progress.mastery[ruleId] = {
+        attempts,
+        correct: Math.min(attempts, toCount(stats.correct)),
+      };
     }
   }
   progress.totalAttempts = toCount(raw.totalAttempts);
-  progress.totalCorrect = toCount(raw.totalCorrect);
+  progress.totalCorrect = Math.min(progress.totalAttempts, toCount(raw.totalCorrect));
   if (Array.isArray(raw.recentQuestions)) {
-    progress.recentQuestions = raw.recentQuestions.filter((id) => typeof id === 'string' || Number.isInteger(id));
+    progress.recentQuestions = raw.recentQuestions
+      .filter((id) => questionIdSet.has(id))
+      .slice(-data.settings.recentQuestionWindow);
   }
   return progress;
 }
@@ -932,7 +948,7 @@ export class ArticleRunnerEngine {
 
     this._level = level;
     this._sessionMode = runMode;
-    this._totalQuestions = level.questionCount ?? this._settings.defaultQuestionCount;
+    this._totalQuestions = level.questionCount;
     this._score = 0;
     this._streak = 0;
     this._bestStreak = 0;
@@ -1258,11 +1274,16 @@ export class ArticleRunnerEngine {
     if (!Number.isInteger(lane) || lane < 0 || lane >= LANE_COUNT) {
       throw new RangeError(`moveToLane expects an integer lane between 0 and ${LANE_COUNT - 1}.`);
     }
-    // Record even a same-lane tap: explicitly choosing the already-selected
-    // answer is still a real decision. Later choices overwrite this value so
-    // scoring follows the learner's final lane at collision.
-    this._laneDecisionElapsedMs = Math.max(0, this._now() - this._presentedAt);
-    if (lane === this._playerLane) return false;
+    const decisionElapsedMs = Math.max(0, this._now() - this._presentedAt);
+    if (lane === this._playerLane) {
+      // Explicitly choosing the already-selected answer is still a real
+      // decision. Repeated taps do not make that settled decision look late.
+      this._laneDecisionElapsedMs ??= decisionElapsedMs;
+      return false;
+    }
+    // A real lane change replaces the previous choice, so bonuses follow the
+    // learner's final selected lane rather than an earlier guess.
+    this._laneDecisionElapsedMs = decisionElapsedMs;
     const from = this._playerLane;
     this._playerLane = lane;
     this._events.emit('player:lane-changed', { from, to: lane, category: this._laneMap[lane] });
@@ -1346,9 +1367,12 @@ export class ArticleRunnerEngine {
     const selectedLane = this._playerLane;
     const selectedCategory = this._laneMap[selectedLane];
     const isCorrect = selectedCategory === question.answer.category;
+    const elapsedToResolution = this._now() - this._presentedAt;
     const responseMs = Math.max(
       0,
-      this._laneDecisionElapsedMs ?? (this._now() - this._presentedAt)
+      automatic && this._laneDecisionElapsedMs !== null
+        ? this._laneDecisionElapsedMs
+        : elapsedToResolution
     );
 
     let pointsGained = 0;
@@ -1411,9 +1435,7 @@ export class ArticleRunnerEngine {
       livesRemaining: this._sessionMode === GAME_MODES.ARCADE ? this._lives : null,
       questionIndex: this._results.length + 1,
       totalQuestions: this._totalQuestions,
-      feedbackDelayMs: isCorrect
-        ? this._settings.feedbackDelayMs
-        : this._settings.wrongAnswerFeedbackDelayMs,
+      feedbackDelayMs: isCorrect ? this._settings.feedbackDelayMs : null,
     };
 
     this._results.push({

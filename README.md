@@ -4,10 +4,10 @@ A three-lane runner game for learning English articles (a / an / the / no articl
 Read a sentence with a blank, switch lanes to pick the right article, and let the
 approaching gate resolve your answer.
 
-**Current phase: playable prototype with approved visuals for the fox, the
-answer gates and the road/environment art.** Gameplay correctness, engine
-integration and the full loop work end to end. Remaining visual phases: HUD,
-question panel, feedback UI, mascot details, animations polish and audio.
+The project is a production-ready, dependency-free browser game with complete
+Learn and Arcade loops, responsive layouts, accessible controls, persistent
+progress, adaptive practice, predecoded gameplay art, and automated engine and
+asset-integrity coverage.
 
 ## Project structure
 
@@ -18,15 +18,17 @@ css/start.css               Landing screen: hero over the approved countryside a
                             + fox mascot, level-selection modal (start screen only)
 js/engine.js                ArticleRunnerEngine — the single canonical engine
 js/game.js                  UI controller: renders engine state, forwards input
+js/player-animation.js      Preserved eight-phase fox asset manifest/test helpers
 data/game-data.json         The single canonical data source (levels, questions,
                             rules, scoring and timing settings)
-tests/engine.test.js        Test suite for js/engine.js (node:test, 162 tests)
-assets/characters/          Approved fox run cycle (8 frames) + fox-hero mascot
-                            for the start screen (webp + png sources)
+tests/                       Engine + preserved fox-asset suites (186 tests)
+assets/characters/          Active rear-view flying fox, preserved 8-frame run
+                            cycle sources, and the start-screen fox mascot
 assets/gates/               Approved gate artwork (webp + png sources)
 assets/backgrounds/         Approved environment paintings (webp + png sources),
                             plus hero-countryside for the start screen
-assets/environment|ui|audio/ Placeholders for the remaining visual phases
+assets/road-details/        Active dirt, pebble, wood, and roadside detail art
+assets/environment|ui/      Active signs, helper owl, loader, and bonus coin art
 ```
 
 There is exactly one engine (`js/engine.js`) and one data file
@@ -66,8 +68,7 @@ plain HTML, CSS, JavaScript, JSON and `node:test` — no frameworks, no bundler.
   a question. Rendering is grouped behind small functions
   (`renderHUD`, `renderQuestion`, `renderLanes`, `renderGates`, `renderPlayer`,
   `renderFeedback`, `renderPause`, `renderLevelComplete`, `renderGameOver`)
-  so the upcoming visual pass can restyle each surface without touching
-  engine integration.
+  so presentation work remains isolated from engine integration.
 
 ### Development mode
 
@@ -80,13 +81,12 @@ and gameplay is unaffected.
 
 ### Character and environment assets
 
-`assets/characters/fox-run-01.png` … `fox-run-08.png` are the untouched
-1254×1254 RGBA masters for the approved fox. Gameplay uses their normalized,
-alpha-safe WebP builds in `assets/characters/runtime/`; the deterministic
-translation/encoding recipe lives in `scripts/build-run-frames.py`. The eight
-runtime frames retain one scale and canvas while encoding the mirrored
-push-off → air → landing → compression gait. `assets/gates/` holds the approved
-gate artwork
+`assets/characters/fox-flying-back.png` is the active 1254×1254 transparent
+gameplay pose. The earlier `fox-run-01.png` … `fox-run-08.png` masters and their
+normalized WebP builds remain as an approved source set rather than being
+loaded by the live game; their deterministic translation/encoding recipe is
+kept in `scripts/build-run-frames.py`. `assets/gates/` holds the approved gate
+artwork
 (`gate-blue/green/purple.webp`, PNG originals in `source/`).
 `assets/backgrounds/` holds the responsive environment paintings:
 `road-desktop.webp`, `road-tablet.webp`, and the cleaned portrait plate
@@ -96,26 +96,25 @@ live in `assets/environment/`, and the desktop helper owl lives in
 `source/` folders. HUD symbols remain lightweight inline SVG so all live
 numbers and labels stay accessible HTML.
 
-### Fox run system (finalized, locked)
+### Gameplay fox flight system (finalized)
 
-`js/player-animation.js` is the single run manifest. It locks the eight phase
-names, frame order, fallback PNGs, 75–95ms cadence, and per-phase shadow
-values. `js/game.js` advances that manifest from the existing
-`requestAnimationFrame` accumulator, preloads and decodes the complete cycle
-before Play, and keeps the current phase across questions and pause/resume.
-Lane movement, lean, feedback reactions, frame playback, and the ground shadow
-each use separate wrappers so their transforms cannot overwrite one another.
-Reduced motion holds one planted compression frame while keeping lane input
-functional. Level complete and Arcade game over also settle on that stable
-pose. Do not reorder, rescale, or redraw this system unless a reproducible
-animation bug is found.
+`js/game.js` preloads and decodes the single rear-view flying pose before Play,
+then animates only its presentation wrappers: projected lane travel, a short
+bank/glide response, calm hover, and the ground shadow. Those transforms stay
+separate so pointer dragging and lane changes cannot overwrite one another.
+Pause freezes the exact current pose, while reduced-motion mode removes hover
+and glide without affecting lane input. Level complete and Arcade game over
+settle the fox cleanly. `js/player-animation.js` and its tests preserve the
+earlier approved run-cycle source contract, but they are not imported by the
+live controller.
 
 ### Environment / scene system (finalized, locked)
 
-One scenic plate is selected per device class (**≤680px phone, 681–1100px
-tablet, otherwise desktop**). Above it, a transparent code-built road finish
-adds moving perspective dashes, sparse stones, worn patches and dust without
-duplicating the scenery. `projectRoadPoint()` and `projectLanePoint()` provide
+One scenic plate is selected per live runner geometry, including dedicated
+phone, tablet, desktop, and short-landscape treatment. Above it, a transparent
+code-built road finish adds moving perspective dashes, supplied dirt/pebble/
+wood/rock details, worn patches and dust without duplicating the scenery.
+`projectRoadPoint()` and `projectLanePoint()` provide
 the shared geometry for road details, lane arrows and gates; CSS custom
 properties supply each layout's horizon, collision line and lane anchors.
 The engine's `gateProgress` and collision timing remain untouched while the

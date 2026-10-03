@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1676c1">
   <title>Definite Dash — English Article Runner</title>
   <link rel="stylesheet" href="css/game.css">
   <link rel="stylesheet" href="css/start.css">
@@ -84,7 +85,7 @@
               <span class="brand__sub">English Article Runner</span>
             </span>
           </div>
-          <button id="btn-levels" class="btn-levels" type="button">
+          <button id="btn-levels" class="btn-levels" type="button" aria-label="Choose a level">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M5 21V4"/><path d="M5 4h13l-2.5 4L18 12H5"/>
@@ -123,7 +124,8 @@
             </button>
 
             <div class="mode-toggle" role="radiogroup" aria-label="Game mode">
-              <button id="btn-mode-learn" class="mode-btn is-active" type="button" aria-pressed="true">
+              <button id="btn-mode-learn" class="mode-btn is-active" type="button"
+                      role="radio" aria-checked="true" tabindex="0">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
                      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2z"/>
@@ -131,7 +133,8 @@
                 </svg>
                 <span>Learn</span>
               </button>
-              <button id="btn-mode-arcade" class="mode-btn" type="button" aria-pressed="false">
+              <button id="btn-mode-arcade" class="mode-btn" type="button"
+                      role="radio" aria-checked="false" tabindex="-1">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
                      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M13 2 3 14h7l-1 8 12-14h-7l1-6z"/>
@@ -235,28 +238,27 @@
           <span class="road-guide" data-lane="1"><i></i><i></i></span>
           <span class="road-guide" data-lane="2"><i></i><i></i></span>
         </div>
-        <div id="gates" class="gates">
-          <div class="answer-gate" data-lane="0" role="button" tabindex="-1" aria-label="Answer gate 1">
+        <div id="gates" class="gates" aria-hidden="true">
+          <div class="answer-gate" data-lane="0">
             <span class="gate-key" aria-hidden="true">1</span>
             <img class="answer-gate__art" alt="" draggable="false" decoding="async">
             <span class="answer-gate__icon" aria-hidden="true"></span>
             <span class="answer-gate__label"></span>
           </div>
-          <div class="answer-gate" data-lane="1" role="button" tabindex="-1" aria-label="Answer gate 2">
+          <div class="answer-gate" data-lane="1">
             <span class="gate-key" aria-hidden="true">2</span>
             <img class="answer-gate__art" alt="" draggable="false" decoding="async">
             <span class="answer-gate__icon" aria-hidden="true"></span>
             <span class="answer-gate__label"></span>
           </div>
-          <div class="answer-gate" data-lane="2" role="button" tabindex="-1" aria-label="Answer gate 3">
+          <div class="answer-gate" data-lane="2">
             <span class="gate-key" aria-hidden="true">3</span>
             <img class="answer-gate__art" alt="" draggable="false" decoding="async">
             <span class="answer-gate__icon" aria-hidden="true"></span>
             <span class="answer-gate__label"></span>
           </div>
         </div>
-        <div id="player" class="player" aria-hidden="true" data-run-frame="4"
-             data-run-phase="left-compression">
+        <div id="player" class="player" aria-hidden="true">
           <!-- Lane travel belongs to .player; the horizontal ground shadow
                stays outside the lean/reaction wrappers so it never banks. -->
           <div class="player-shadow"></div>
@@ -264,8 +266,8 @@
             <div class="player-reaction">
               <div class="player-run">
                 <div class="player-frame">
-                  <img id="player-img" class="player-img"
-                       src="assets/characters/runtime/fox-run-04.webp"
+                   <img id="player-img" class="player-img"
+                        src="assets/characters/fox-flying-back.png"
                        alt="" draggable="false" decoding="async"
                        width="1254" height="1254">
                 </div>
@@ -445,7 +447,7 @@
       ============================================================ -->
     <section id="screen-complete" class="screen screen-complete hidden">
       <div class="result-card">
-        <h2 id="complete-title" class="result-title">Level complete</h2>
+        <h2 id="complete-title" class="result-title" tabindex="-1">Level complete</h2>
         <p id="complete-stars" class="result-stars" aria-label="Stars"></p>
         <ul class="result-stats">
           <li><span>Correct</span><b id="complete-correct">0</b></li>
@@ -471,7 +473,7 @@
       ============================================================ -->
     <section id="screen-gameover" class="screen screen-gameover hidden">
       <div class="result-card">
-        <h2 class="result-title">Game over</h2>
+        <h2 id="gameover-title" class="result-title" tabindex="-1">Game over</h2>
         <p class="overlay-note">You ran out of lives in Arcade Mode.</p>
         <ul class="result-stats">
           <li><span>Answered</span><b id="gameover-answered">0</b></li>

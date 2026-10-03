@@ -157,7 +157,7 @@ body {
   overflow: hidden;
   contain: layout paint size;
   container-type: size;
-  touch-action: pan-y;
+  touch-action: pan-y pinch-zoom;
   overscroll-behavior-x: none;
   /* Safe first-paint fallbacks; gameplay replaces projected geometry. */
   --scene-horizon-y: 42.5%;
@@ -198,8 +198,154 @@ body {
   content: "";
   position: absolute;
   inset: 0;
+  z-index: 3;
   background: linear-gradient(to bottom, rgba(64, 171, 235, 0.08), transparent 34%, rgba(28, 82, 41, 0.04));
   pointer-events: none;
+}
+
+/* Side-scenery parallax. The painted scene stays fixed; these three pooled
+ * layers supply only the depth cues that can move without seams. */
+.scenery-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  contain: layout paint style;
+  pointer-events: none;
+}
+
+.scenery-far {
+  inset: -2%;
+  z-index: 0;
+  background:
+    radial-gradient(ellipse at 50% var(--scene-horizon-y), rgba(218, 248, 255, 0.17), transparent 44%),
+    linear-gradient(to bottom, transparent 24%, rgba(194, 238, 242, 0.055) 44%, transparent 64%);
+  opacity: 0.72;
+  transform-origin: 50% var(--scene-horizon-y);
+  will-change: transform;
+}
+
+.scenery-mid { z-index: 1; }
+.scenery-near { z-index: 2; }
+
+.scenery-object {
+  --scenery-layout-scale: 1;
+  --scenery-w: 76px;
+  --scenery-h: 48px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(var(--scenery-w) * var(--scenery-layout-scale));
+  height: calc(var(--scenery-h) * var(--scenery-layout-scale));
+  contain: layout paint style;
+  opacity: 0;
+  transform-origin: 50% 100%;
+  will-change: transform;
+  pointer-events: none;
+  user-select: none;
+}
+
+.runner[data-road-layout="tablet"] .scenery-object { --scenery-layout-scale: 0.9; }
+.runner[data-road-layout="mobile"] .scenery-object { --scenery-layout-scale: 0.78; }
+
+.scenery-object--fence {
+  --scenery-w: 118px;
+  --scenery-h: 68px;
+  background:
+    linear-gradient(90deg, transparent 41%, #8c4b20 42% 47%, #b56a2d 48% 54%, #6f3518 55% 59%, transparent 60%)
+    center bottom / 100% 92% no-repeat;
+}
+
+.scenery-object--fence::before,
+.scenery-object--fence::after {
+  content: "";
+  position: absolute;
+  left: 1%;
+  width: 98%;
+  height: 13%;
+  border: 1px solid rgba(100, 50, 20, 0.72);
+  border-radius: 999px 6px 6px 999px;
+  background: linear-gradient(180deg, #c77b37 0%, #9b5624 48%, #713616 100%);
+  box-shadow: inset 0 1px rgba(255, 212, 139, 0.36), 0 2px 2px rgba(66, 44, 22, 0.18);
+  transform: rotate(var(--fence-rail-angle, 0deg));
+  transform-origin: center;
+}
+
+.scenery-object--fence::before { top: 28%; }
+.scenery-object--fence::after { top: 58%; }
+.scenery-object--left { --fence-rail-angle: -4deg; }
+.scenery-object--right { --fence-rail-angle: 4deg; }
+
+.scenery-object--tree {
+  --scenery-w: 74px;
+  --scenery-h: 94px;
+  background:
+    linear-gradient(90deg, transparent 42%, #70411f 43% 48%, #a45f2b 49% 57%, #603319 58% 61%, transparent 62%)
+    center bottom / 100% 48% no-repeat;
+}
+
+.scenery-object--tree::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 28%;
+  border-radius: 48% 52% 44% 50%;
+  background:
+    radial-gradient(circle at 35% 27%, rgba(213, 244, 104, 0.84) 0 11%, transparent 12%),
+    radial-gradient(circle at 30% 36%, #8bd447 0 31%, transparent 32%),
+    radial-gradient(circle at 69% 39%, #68ba3c 0 34%, transparent 35%),
+    radial-gradient(circle at 50% 66%, #438f35 0 42%, transparent 43%);
+  box-shadow: 0 3px 3px rgba(42, 83, 38, 0.18);
+}
+
+.scenery-object--bush {
+  --scenery-w: 84px;
+  --scenery-h: 48px;
+  border-radius: 52% 48% 22% 24%;
+  background:
+    radial-gradient(circle at 24% 54%, #72bf3f 0 31%, transparent 32%),
+    radial-gradient(circle at 50% 34%, #91d84c 0 35%, transparent 36%),
+    radial-gradient(circle at 77% 58%, #56a337 0 32%, transparent 33%),
+    linear-gradient(to top, #347f31 0 42%, transparent 43%);
+  box-shadow: inset 0 -5px rgba(42, 105, 42, 0.16), 0 2px 2px rgba(48, 82, 35, 0.16);
+}
+
+.scenery-object--grass {
+  --scenery-w: 78px;
+  --scenery-h: 42px;
+  background: linear-gradient(120deg, #3d8f35, #a3dc48 56%, #4d9d34);
+  clip-path: polygon(0 100%, 8% 58%, 14% 92%, 22% 28%, 31% 88%, 40% 42%, 48% 91%, 59% 18%, 66% 87%, 76% 37%, 82% 91%, 93% 52%, 100% 100%);
+}
+
+.scenery-object--rock {
+  --scenery-w: 68px;
+  --scenery-h: 42px;
+  border-radius: 58% 45% 28% 34%;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.35) 0 18%, transparent 19%),
+    linear-gradient(135deg, #cbc9c8 0%, #99959a 58%, #68686f 100%);
+  box-shadow: inset -7px -5px rgba(78, 75, 86, 0.16), 0 3px 2px rgba(54, 52, 61, 0.16);
+  clip-path: polygon(7% 100%, 1% 69%, 18% 25%, 43% 5%, 79% 19%, 98% 62%, 88% 100%);
+}
+
+.scenery-object--flowers {
+  --scenery-w: 82px;
+  --scenery-h: 44px;
+  background:
+    radial-gradient(circle at 15% 67%, #ffd33d 0 3%, #fff 4% 10%, transparent 11%),
+    radial-gradient(circle at 43% 43%, #ffc328 0 3%, #fff 4% 11%, transparent 12%),
+    radial-gradient(circle at 69% 72%, #ffcb31 0 3%, #fff 4% 10%, transparent 11%),
+    radial-gradient(circle at 88% 48%, #ffbe2c 0 3%, #fff 4% 9%, transparent 10%),
+    linear-gradient(to top, #4c9e37 0 24%, transparent 25%);
+}
+
+.scenery-object--hay {
+  --scenery-w: 62px;
+  --scenery-h: 62px;
+  border: 3px solid rgba(183, 118, 24, 0.52);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, transparent 0 18%, rgba(179, 107, 20, 0.58) 19% 23%, transparent 24% 39%, rgba(190, 119, 24, 0.5) 40% 44%, transparent 45%),
+    repeating-conic-gradient(from 8deg, #f9d65a 0 9deg, #e9b83a 10deg 16deg, #f6ca4a 17deg 25deg);
+  box-shadow: inset -7px -6px rgba(164, 100, 20, 0.14), 0 3px 3px rgba(88, 64, 31, 0.16);
 }
 
 .road-edge,
@@ -385,7 +531,7 @@ body {
   left: 0;
   contain: layout style;
   transform-origin: center;
-  will-change: transform, opacity;
+  will-change: transform;
 }
 
 .road-detail { z-index: 1; }
@@ -429,37 +575,6 @@ img.road-detail {
   opacity: 0.56;
 }
 
-.road-stone {
-  --stone-hi: #d8c29f;
-  --stone-lo: #9c7d5e;
-  --chip-hi: #cbb492;
-  --chip-lo: #9b7c5c;
-  border-radius: 48% 54% 46% 52%;
-  background: radial-gradient(circle at 35% 28%, var(--stone-hi), var(--stone-lo) 74%);
-  box-shadow: 0 1px 1.5px rgba(112, 78, 44, 0.18), inset 0 1px rgba(255, 239, 201, 0.28);
-}
-
-.road-stone::before,
-.road-stone::after {
-  content: "";
-  position: absolute;
-  border-radius: 50% 44% 54% 46%;
-  background: radial-gradient(circle at 35% 30%, var(--chip-hi), var(--chip-lo) 76%);
-  box-shadow: 0 1px 1px rgba(112, 78, 44, 0.16);
-  opacity: 0.64;
-}
-
-.road-stone::before { width: 34%; height: 31%; left: -44%; top: 55%; }
-.road-stone::after { width: 22%; height: 20%; right: -36%; top: 18%; }
-
-.road-stone--inner::before { opacity: 0.46; transform: scale(0.82); }
-.road-stone--inner::after { opacity: 0.36; transform: scale(0.7); }
-
-.stone-a { --stone-hi: #ddcbb0; --stone-lo: #9c8169; --chip-hi: #cfbda3; --chip-lo: #9f8268; }
-.stone-b { --stone-hi: #cbbda7; --stone-lo: #897968; --chip-hi: #bdaf99; --chip-lo: #8d7965; }
-.stone-c { --stone-hi: #e2d1b6; --stone-lo: #a58a6e; --chip-hi: #d3c1a5; --chip-lo: #9f846a; }
-.stone-d { --stone-hi: #c5b9a6; --stone-lo: #81766a; --chip-hi: #b9ad99; --chip-lo: #877668; }
-
 .runner[data-road-layout="tablet"] .road-surface::before {
   background-size: 100% 500px, 100% 500px, 100% 500px, 100% 500px, 97px 139px, 143px 187px, 103px 137px, 151px 199px;
   opacity: 0.58;
@@ -471,7 +586,6 @@ img.road-detail {
 }
 
 .runner[data-road-layout="mobile"] .road-edge::after { opacity: 0.2; }
-.runner[data-road-layout="mobile"] .road-stone::after { display: none; }
 
 .dust-puff {
   border-radius: 50%;
@@ -599,7 +713,14 @@ img.road-detail {
 .screen-game.is-coin-paused .road-coin__image,
 .screen-game.is-coin-paused .coin-spark,
 .screen-game.is-coin-paused .coin--collecting,
-.screen-game.is-coin-paused .hud-coin--pulse {
+.screen-game.is-coin-paused .hud-coin--pulse,
+.screen-game.is-coin-paused .player-reaction,
+.screen-game.is-coin-paused .score-pop,
+.screen-game.is-coin-paused .answer-gate__art,
+.screen-game.is-coin-paused .answer-dock__choice,
+.screen-game.is-coin-paused .feedback,
+.screen-game.is-coin-paused .hud-heart,
+.screen-game.is-coin-paused .hud-icon--flame {
   animation-play-state: paused;
 }
 
@@ -773,121 +894,109 @@ body.debug .answer-gate .gate-key {
 .gates-art-failed .answer-gate[data-category="none"] { background: #8b47d4; }
 
 /* ========================================================================== 
- * Fox
+ * Flying fox
  * --------------------------------------------------------------------------
- * Each wrapper owns one job: .player moves between lanes; .player-lean banks
- * during that move; .player-reaction handles one-shot answer feedback; and
- * .player-run holds the fixed 1:1 sprite canvas. The shadow remains a sibling
- * of every rotating wrapper, so lane changes never tilt the ground plane.
+ * The outer rig owns transform-only lane travel, the lean layer banks during
+ * a turn, and the fixed 1:1 frame carries a single back-view image. The shadow
+ * remains outside the rotating layers so it always stays level with the road.
  * ========================================================================== */
 
 .player {
   position: absolute;
   bottom: var(--player-bottom);
-  left: var(--lane-x-1);
+  left: 50%;
   z-index: 5;
   width: min(clamp(220px, 16.3vw, 278px), 36cqh);
   aspect-ratio: 1;
-  --shadow-scale: 1.08;
-  --shadow-opacity: 0.49;
-  --shadow-blur: 0.5px;
+  --player-lane-offset: 0px;
   --player-drag-x: 0px;
-  transform: translateX(-50%) translateX(var(--player-drag-x));
-  transition:
-    left 190ms cubic-bezier(0.22, 0.78, 0.3, 1),
-    transform 170ms cubic-bezier(0.22, 0.78, 0.3, 1);
-  will-change: left, transform;
+  --player-drag-lean: 0deg;
+  --player-bank-angle: 0deg;
+  --player-glide-y: 0px;
+  --player-hover-y: 0px;
+  --player-flight-lift: -8px;
+  --player-shadow-scale: 1;
+  --player-shadow-opacity: 0.32;
+  transform: translate3d(
+    calc(-50% + var(--player-lane-offset) + var(--player-drag-x)),
+    0,
+    0
+  );
+  will-change: transform;
   pointer-events: none;
-}
-
-.player.is-dragging {
-  transition:
-    left 190ms cubic-bezier(0.22, 0.78, 0.3, 1),
-    transform 55ms linear;
 }
 
 .player-lean,
 .player-reaction,
-.player-run,
+.player-flight,
 .player-frame {
   position: absolute;
   inset: 0;
 }
 
 .player-lean {
-  transform-origin: 50% 82%;
-  transition: transform 190ms cubic-bezier(0.22, 0.78, 0.3, 1);
+  transform: translate3d(0, var(--player-glide-y), 0)
+    rotate(calc(var(--player-bank-angle) + var(--player-drag-lean)));
+  transform-origin: 50% 72%;
   will-change: transform;
 }
 
-.player-lean.lean-right { transform: rotate(2.5deg); }
-.player-lean.lean-left { transform: rotate(-2.5deg); }
-.player-lean.is-dragging {
-  transform: rotate(var(--player-drag-lean, 0deg));
-  transition-duration: 55ms;
-}
-
-.player-run,
 .player-frame {
   display: grid;
   place-items: center;
+  z-index: 1;
+  transform: translate3d(0, calc(var(--player-flight-lift) + var(--player-hover-y)), 0);
+  will-change: transform;
 }
 
-/* The phase manifest updates these variables at the same instant as the
- * image source. There is no independent CSS bob or shadow clock to drift. */
 .player-shadow {
   position: absolute;
-  bottom: 1.2%;
-  left: 50%;
-  width: 68%;
-  height: 10.5%;
+  bottom: 2%;
+  left: 54%;
+  width: 54%;
+  height: 8.5%;
   border-radius: 50%;
   background: radial-gradient(
     ellipse at center,
-    rgba(45, 38, 32, 0.68) 0%,
-    rgba(45, 38, 32, 0.38) 33%,
-    rgba(45, 38, 32, 0) 73%
+    rgba(43, 36, 31, 0.52) 0%,
+    rgba(43, 36, 31, 0.26) 38%,
+    rgba(43, 36, 31, 0) 74%
   );
-  opacity: var(--shadow-opacity);
-  filter: blur(var(--shadow-blur));
-  transform: translateX(-50%) scale(var(--shadow-scale));
+  opacity: var(--player-shadow-opacity);
+  transform: translate3d(-50%, 0, 0) scale(var(--player-shadow-scale));
   transform-origin: center;
-  will-change: transform, opacity, filter;
+  will-change: transform, opacity;
 }
 
 .player-img {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
+  opacity: 1;
+  visibility: visible;
   object-fit: contain;
   user-select: none;
   -webkit-user-drag: none;
 }
 
-/* One-shot answer reactions never replace run frames with mismatched art. */
-.player.player-correct .player-reaction {
-  animation: player-correct-lift 420ms cubic-bezier(0.2, 0.8, 0.26, 1) 1;
+.player-reaction::after {
+  content: "";
+  position: absolute;
+  inset: 18% 13% 8%;
+  z-index: 0;
+  border-radius: 48%;
+  opacity: 0;
+  background: radial-gradient(ellipse, rgba(74, 210, 108, 0.26), transparent 68%);
+  transition: opacity 150ms ease;
 }
 
-.player.player-wrong .player-reaction {
-  animation: player-wrong-hesitate 330ms ease-out 1;
+.player.player-correct .player-reaction::after { opacity: 1; }
+.player.player-wrong .player-reaction::after {
+  opacity: 0.72;
+  background: radial-gradient(ellipse, rgba(242, 149, 72, 0.2), transparent 68%);
 }
-
-@keyframes player-correct-lift {
-  0%, 100% { transform: translateY(0) scale(1); }
-  42% { transform: translateY(-4.5%) scale(1.012); }
-  72% { transform: translateY(0.8%) scale(0.996); }
-}
-
-@keyframes player-wrong-hesitate {
-  0%, 100% { transform: translateX(0) rotate(0); }
-  28% { transform: translateX(-1.7%) rotate(-0.8deg); }
-  58% { transform: translateX(1.35%) rotate(0.65deg); }
-  80% { transform: translateX(-0.55%) rotate(-0.25deg); }
-}
-
-.player.player-correct .player-img { filter: drop-shadow(0 0 8px rgba(67, 194, 88, 0.82)); }
-.player.player-wrong .player-img { filter: drop-shadow(0 0 7px rgba(214, 83, 50, 0.72)); }
 
 .score-pop {
   position: absolute;
@@ -961,6 +1070,8 @@ body.debug .answer-gate .gate-key {
   flex: none;
   width: calc(72px * var(--hud-scale));
   height: calc(72px * var(--hud-scale));
+  min-width: 44px;
+  min-height: 44px;
   display: grid;
   place-items: center;
   padding: 0;
@@ -1332,7 +1443,18 @@ body.debug .answer-gate .gate-key {
   flex-direction: row-reverse;
   align-items: flex-end;
   justify-content: flex-end;
+  transition: opacity 150ms ease, transform 150ms ease;
   pointer-events: none;
+}
+
+.runner[data-player-lane="0"] .tip-card {
+  opacity: 0;
+  transform: translateX(-8px);
+}
+
+.runner[data-player-lane="2"] .owl-help {
+  opacity: 0;
+  transform: translateX(8px);
 }
 
 .owl-help__mascot {
@@ -1402,7 +1524,8 @@ body.debug .answer-gate .gate-key {
   pointer-events: none;
 }
 
-.screen-game.is-feedback .tip-card { opacity: 0; transform: translateY(10px); }
+.screen-game.is-feedback .tip-card,
+.screen-game.is-feedback .owl-help { opacity: 0; transform: translateY(10px); pointer-events: none; }
 
 /* ========================================================================== 
  * Feedback, overlays and result screens
@@ -1499,7 +1622,8 @@ body.debug .answer-gate .gate-key {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right))
+    max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
   background: rgba(8, 28, 59, 0.58);
 }
 
@@ -1532,9 +1656,15 @@ body.debug .answer-gate .gate-key {
 
 .screen-complete,
 .screen-gameover {
-  justify-content: center;
+  justify-content: flex-start;
   background: linear-gradient(rgba(219, 243, 253, 0.88), rgba(236, 247, 225, 0.92)),
     url("../assets/backgrounds/road-desktop.webp") center / cover;
+}
+
+.screen-complete .result-card,
+.screen-gameover .result-card {
+  flex: none;
+  margin-block: auto;
 }
 
 .screen-gameover {
@@ -1650,11 +1780,41 @@ body.debug .answer-gate .gate-key {
   .feedback { width: min(90%, 500px); }
 }
 
-/* The narrowest tablet width still uses the one-row desktop HUD. Tighten it
- * before the phone layout takes over so the centered progress stays centered. */
-@media (min-width: 681px) and (max-width: 740px) {
-  .hud { --hud-scale: 0.64; gap: 6px; }
-  .hud-group { gap: 4px; }
+/* Medium screens use a deliberate two-row HUD so the Arcade stats never
+ * collide with the centered question progress. */
+@media (min-width: 681px) and (max-width: 900px) {
+  .hud {
+    --hud-scale: 0.72;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    gap: 6px 10px;
+  }
+
+  .hud-group--main {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .hud-pill--progress {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .hud-group--stats {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: center;
+  }
+
+  .owl-help { width: min(260px, 32vw); }
+  .owl-help__mascot { flex-basis: 76px; width: 76px; }
+  .owl-help__bubble {
+    width: min(182px, 22vw);
+    min-height: 90px;
+    margin-bottom: 10px;
+    padding: 10px 12px;
+    border-radius: 18px;
+  }
 }
 
 @media (max-width: 900px) and (orientation: portrait) {
@@ -1673,7 +1833,7 @@ body.debug .answer-gate .gate-key {
   .app { min-height: 0; }
 
   .runner {
-    --player-bottom: 10%;
+    --player-bottom: max(10%, calc(66px + env(safe-area-inset-bottom)));
     --lane-marker-width: 7px;
     --lane-marker-height: 62px;
   }
@@ -1683,11 +1843,17 @@ body.debug .answer-gate .gate-key {
   }
 
   .runner[data-road-layout="mobile"] .road-edge { opacity: 0.62; }
-  .runner[data-road-layout="mobile"] .road-edge::before { filter: blur(4px); }
+  .runner[data-road-layout="mobile"] .road-edge::before { filter: none; }
   .runner[data-road-layout="mobile"] .road-edge::after { opacity: 0.28; }
   .runner[data-road-layout="mobile"] .road-surface {
-    filter: brightness(1.04) saturate(0.96);
+    filter: none;
   }
+  .runner[data-road-layout="mobile"] .road-shading i,
+  .runner[data-road-layout="mobile"] .road-tracks i,
+  .runner[data-road-layout="mobile"] .road-detail--raised,
+  .runner[data-road-layout="mobile"] .road-detail--roadside,
+  .runner[data-road-layout="mobile"] .road-coin__image { filter: none; }
+  .coin-spark { box-shadow: none; }
 
   .game-top {
     gap: 6px;
@@ -1697,36 +1863,40 @@ body.debug .answer-gate .gate-key {
 
   .hud {
     --hud-scale: 0.62;
-    grid-template-columns: auto 86px minmax(0, 1fr);
-    grid-template-rows: 35px 35px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: 48px 35px;
     gap: 3px 4px;
   }
 
   .hud-group--main {
     grid-column: 1;
-    grid-row: 1 / 3;
+    grid-row: 1;
     gap: 4px;
   }
 
   .hud-group--stats {
     width: 100%;
-    height: 73px;
+    height: 35px;
     display: grid;
-    grid-column: 3;
-    grid-row: 1 / 3;
-    grid-template-columns: minmax(0, 1.06fr) minmax(0, 0.94fr);
-    grid-template-rows: 35px 35px;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: 35px;
     gap: 3px;
     justify-self: stretch;
   }
 
+  .hud-group--stats:has(.hud-pill--lives.hidden) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .hud-pill--progress {
     grid-column: 2;
-    grid-row: 1 / 3;
+    grid-row: 1;
     align-self: center;
   }
 
-  .hud-pause { width: 38px; height: 48px; }
+  .hud-pause { width: 44px; height: 48px; }
 
   .hud-pill {
     min-height: 43px;
@@ -1743,28 +1913,29 @@ body.debug .answer-gate .gate-key {
   }
   .hud-pill--streak {
     min-width: 0;
-    grid-column: 1;
-    grid-row: 2;
+    grid-column: 2;
+    grid-row: 1;
     justify-self: stretch;
   }
   .hud-pill--lives {
     min-width: 0;
-    grid-column: 2;
-    grid-row: 2;
+    grid-column: 3;
+    grid-row: 1;
     justify-self: stretch;
   }
   .hud-group--stats > .hud-pill { min-height: 35px; padding: 4px 6px; }
   .hud-pill__text { font-size: 0.76rem; }
   .hud-pill__text--strong,
   .hud-pill__value { font-size: 0.86rem; }
-  .hud-streak__label { font-size: 0.68rem; }
+  .hud-streak__label { display: none; }
   .hud-icon { width: 22px; height: 22px; }
   .hud-heart { width: 20px; height: 20px; }
   .hud-level__track { height: 7px; }
   .hud-progress__segment { height: 8px; }
 
   .sentence-wrap {
-    width: calc(100vw - 20px);
+    width: 100%;
+    max-width: calc(100vw - 20px);
     min-height: 91px;
     gap: 5px;
     padding: 12px 14px 11px;
@@ -1811,6 +1982,7 @@ body.debug .answer-gate .gate-key {
 
   .player {
     width: min(clamp(142px, 37vw, 176px), 31cqh);
+    --player-flight-lift: -6px;
   }
 
   .road-guide { width: 76px; height: 56px; }
@@ -1836,7 +2008,7 @@ body.debug .answer-gate .gate-key {
 
   .mobile-hint summary {
     min-width: 72px;
-    min-height: 42px;
+    min-height: 44px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1883,20 +2055,23 @@ body.debug .answer-gate .gate-key {
   .feedback-title { font-size: 1rem; }
   .feedback-sentence { font-size: 0.9rem; }
   .feedback-detail { font-size: 0.78rem; }
-  .feedback .btn { min-height: 38px; padding: 8px 14px; font-size: 0.8rem; }
+  .feedback .btn { min-height: 44px; padding: 8px 14px; font-size: 0.8rem; }
   .screen-game.is-feedback .mobile-hint { display: none; }
   .score-pop { bottom: 31%; }
 }
 
 @media (max-width: 430px) {
-  .screen:not(.screen-game):not(.screen-start) { padding: 10px; }
+  .screen:not(.screen-game):not(.screen-start) {
+    padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right))
+      max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  }
   .result-card { padding: 18px; }
 }
 
 @media (max-width: 360px) {
   .hud { --hud-scale: 0.57; }
-  .hud { grid-template-columns: auto 78px minmax(0, 1fr); }
-  .hud-pause { width: 35px; }
+  .hud { grid-template-columns: minmax(0, 1fr) 78px; }
+  .hud-pause { width: 44px; }
   .hud-pill--level { width: 84px; }
   .hud-pill--level .hud-icon { width: 18px; height: 18px; }
   .hud-pill--level .hud-pill__stack { gap: 2px; }
@@ -1913,7 +2088,7 @@ body.debug .answer-gate .gate-key {
   .player { width: min(136px, 30cqh); }
 }
 
-@media (max-height: 760px) and (min-width: 681px) {
+@media (max-height: 780px) and (min-width: 681px) {
   .game-top { gap: 7px; padding-top: max(8px, env(safe-area-inset-top)); }
   .hud { --hud-scale: 0.72; }
   .sentence-wrap { min-height: 86px; padding: 10px 26px; border-radius: 26px; }
@@ -1928,6 +2103,51 @@ body.debug .answer-gate .gate-key {
   .world-sign { width: clamp(150px, 12vw, 184px); }
 }
 
+@media (max-height: 600px) and (min-width: 681px) {
+  .app { min-height: 0; }
+
+  .runner { --player-bottom: max(11%, calc(64px + env(safe-area-inset-bottom))); }
+
+  .game-top {
+    gap: 4px;
+    padding-top: max(5px, env(safe-area-inset-top));
+  }
+
+  .hud { --hud-scale: 0.58; gap: 4px 8px; }
+  .hud-group { gap: 5px; }
+
+  .sentence-wrap {
+    min-height: 68px;
+    padding: 8px 22px;
+    border-radius: 22px;
+  }
+
+  .sentence { font-size: clamp(1.08rem, 2.2vw, 1.45rem); }
+  .sentence-instruction { display: none; }
+
+  .answer-dock {
+    width: min(72vw, 620px);
+    gap: 6px;
+    padding-bottom: max(5px, env(safe-area-inset-bottom));
+  }
+
+  .answer-dock__choice { min-height: 50px; padding-block: 5px; }
+  .player { width: min(clamp(138px, 18vw, 210px), 31cqh); }
+  .gates { --gate-h-cap: 28cqh; }
+
+  .world-sign,
+  .tip-card,
+  .owl-help,
+  .mobile-hint,
+  .controls-hint { display: none; }
+
+  .feedback {
+    width: min(470px, calc(100% - 24px));
+    gap: 4px;
+    padding: 10px 14px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .scene,
   .player,
@@ -1935,19 +2155,14 @@ body.debug .answer-gate .gate-key {
   .player-shadow,
   .hud-level__fill,
   .tip-card,
+  .owl-help,
   .hud-pause,
   .btn,
   .answer-dock__choice { transition: none; }
 
-  .player.is-dragging,
-  .player-lean.is-dragging { transition: none; }
+  .player-lean { transform: none; }
+  .player-frame { transform: translate3d(0, var(--player-flight-lift), 0); }
 
-  .player-lean.lean-left,
-  .player-lean.lean-right,
-  .player-lean.is-dragging { transform: none; }
-
-  .player.player-correct .player-reaction,
-  .player.player-wrong .player-reaction,
   .hud-heart.just-lost,
   .hud-pill.is-pulse,
   .hud-pill--score.hud-coin--pulse,

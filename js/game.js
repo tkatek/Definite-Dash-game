@@ -9,12 +9,6 @@
  * ========================================================================== */
 
 import { ArticleRunnerEngine, GAME_STATES, GAME_MODES } from './engine.js';
-import {
-  RUN_PHASES,
-  STABLE_RUN_FRAME_INDEX,
-  advanceRunClock,
-  feedbackRunRateForWorldRate,
-} from './player-animation.js';
 
 /* ========================================================================
  * 1. Configuration and DOM references
@@ -28,14 +22,8 @@ import {
 const DEBUG = false;
 
 const DATA_URL = 'data/game-data.json';
-const CORRECT_AUTO_CONTINUE_MS = 850;
 const CORRECT_RESUME_AUTO_CONTINUE_MS = 600;
-// One calm, device-independent cadence. Road/gate pacing must not accelerate
-// the sprite clock or make the fox look increasingly frantic.
-const RUN_FRAME_DURATION_MS = 95;
-// Advance gameplay and every PLAYING motion cue together. A 2x pace gives
-// Level 1 an approximately 10-second approach without changing engine rules.
-const PLAYING_PACE = 2;
+const FLYING_FOX_SRC = 'assets/characters/fox-flying-back.png';
 
 /* ------------------------------------------------------------------------
  * Gate visual system — the ONLY place category → gate appearance is mapped.
@@ -241,9 +229,9 @@ const ROAD_LAYOUTS = {
     gateStartDepth: 0.02,
     roadShoulder: 0.016,
     gateSpacingFactor: 0.78,
-    gateDecisionSpacingFactor: 0.99,
-    gateSlotFill: 0.9,
-    gateSizeBoost: 1.215,
+    gateDecisionSpacingFactor: 0.9,
+    gateSlotFill: 0.72,
+    gateSizeBoost: 1.15,
     minGateScale: 0.22,
     maxGateScale: 1.22,
     markerWidthPx: 7,
@@ -360,18 +348,53 @@ const ROAD_DETAIL_SEEDS = Object.freeze([
 const ROAD_MOTION = {
   markerMultiplier: 1,
   detailMultiplier: 1,
-  textureMultiplier: 0.68,
-  texturePixelsPerDepth: 180,
   feedbackBurstS: 0.1,
   crawlCorrect: 0.22,
   crawlWrong: 0.16,
   decelTau: 0.12,
   accelTau: 0.22,
-  maxDeltaMs: 40,
+  maxDeltaMs: 100,
   gatePassBoost: 3.2,
   dustEveryMs: 150,
-  reducedFactor: 0.7,
+  reducedFactor: 1,
 };
+
+/**
+ * Side-scenery depth cues. The painted scene remains the visual anchor; only
+ * lightweight overlays move. Every ratio multiplies the same worldAdvance as
+ * the road, so PLAYING is steady and pause/feedback inherit the world state.
+ */
+const SCENERY_PARALLAX = Object.freeze({
+  far: 0.035,
+  mid: 0.28,
+  near: Object.freeze({ desktop: 0.72, tablet: 0.74, mobile: 0.82 }),
+});
+
+/** Active objects per side. The pool is built once at desktop capacity. */
+const SCENERY_DENSITY = Object.freeze({
+  desktop: Object.freeze({ mid: 4, near: 8 }),
+  tablet: Object.freeze({ mid: 2, near: 4 }),
+  mobile: Object.freeze({ mid: 1, near: 3 }),
+});
+
+const SCENERY_TYPES = Object.freeze({
+  mid: Object.freeze(['tree', 'bush', 'fence', 'hay']),
+  near: Object.freeze(['fence', 'grass', 'bush', 'rock', 'flowers', 'hay']),
+});
+
+const SCENERY_BASE_WIDTH_PX = Object.freeze({
+  fence: 118,
+  tree: 74,
+  bush: 84,
+  grass: 78,
+  rock: 68,
+  flowers: 82,
+  hay: 62,
+});
+
+const SCENERY_LAYOUT_SCALE = Object.freeze({ desktop: 1, tablet: 0.9, mobile: 0.78 });
+
+const SCENERY_DEPTH_LIMIT = 1.055;
 
 /** Sparse bonus collectibles. These values intentionally live in one place:
  * coins are a brief surprise between learning decisions, never a road trail. */
@@ -416,12 +439,16 @@ const PRELOAD_ASSETS = Object.freeze({
       kind: 'gate',
       candidates: Object.freeze([visual.art]),
     })),
-    ...RUN_PHASES.map((frame, index) => Object.freeze({
-      id: `fox-run-${index}-${frame.id}`,
-      kind: 'run-frame',
-      frameIndex: index,
-      candidates: Object.freeze([...new Set([frame.src, frame.fallbackSrc].filter(Boolean))]),
+    ...Object.entries(ROAD_DETAIL_ASSETS).map(([key, detail]) => Object.freeze({
+      id: `road-detail-${key}`,
+      kind: 'road-detail',
+      candidates: Object.freeze([detail.src]),
     })),
+    Object.freeze({
+      id: 'fox-flying-back',
+      kind: 'player',
+      candidates: Object.freeze([FLYING_FOX_SRC]),
+    }),
   ]),
   optional: Object.freeze([
     Object.freeze({
@@ -484,13 +511,24 @@ const world = {
   nearLaneSpacing: ROAD_LAYOUTS.desktop.nearLaneSpacing,
   playerDepth: ROAD_LAYOUTS.desktop.playerDepth,
   perspectivePower: ROAD_LAYOUTS.desktop.perspectivePower,
+  playerHalfWidth:
+    ROAD_LAYOUTS.desktop.farHalfWidth +
+    (ROAD_LAYOUTS.desktop.nearHalfWidth - ROAD_LAYOUTS.desktop.farHalfWidth) *
+      Math.pow(ROAD_LAYOUTS.desktop.playerDepth, ROAD_LAYOUTS.desktop.perspectivePower),
   divAngle: [-7, 7], // straight divider-rail tilt per side (deg)
   markers: [],
   details: [],
   dusts: [],
   dustIdx: 0,
   dustTimer: 0,
-  roadTextureOffset: 0,
+  scenery: {
+    farLayer: null,
+    midLayer: null,
+    nearLayer: null,
+    mid: [],
+    near: [],
+    farPhase: 0,
+  },
   playerLane: 1,
   gate: { depth: 0, spawnFade: 0 },
 };
@@ -515,18 +553,30 @@ function lerp(from, to, amount) {
 function projectRoadPoint(depth, laneOffset = 0) {
   const safeDepth = Math.max(0, depth);
   const t = Math.pow(safeDepth, world.perspectivePower);
-  const playerT = Math.pow(world.playerDepth, world.perspectivePower);
   const roadHalfWidth = lerp(world.farHalfWidth, world.nearHalfWidth, t);
   const laneSpacing = lerp(world.farLaneSpacing, world.nearLaneSpacing, t);
-  const playerHalfWidth = lerp(world.farHalfWidth, world.nearHalfWidth, playerT);
   return {
     x: world.centerX + laneOffset * laneSpacing,
     y: lerp(world.horizonY, world.bottomY, t),
     roadHalfWidth,
     laneSpacing,
-    scale: roadHalfWidth / playerHalfWidth,
+    scale: roadHalfWidth / world.playerHalfWidth,
     t,
     depth: safeDepth,
+  };
+}
+
+/** Project a decorative object just beyond the active road shoulder. */
+function projectSceneryPoint(depth, side, edgeOffset) {
+  const roadPoint = projectRoadPoint(depth, 0);
+  const t = clamp01(roadPoint.t);
+  const clearance = lerp(0.012, 0.038, t);
+  const perspectiveOffset = edgeOffset * lerp(0.42, 1, t);
+  return {
+    ...roadPoint,
+    x: world.centerX + side * (
+      roadPoint.roadHalfWidth + clearance + perspectiveOffset
+    ),
   };
 }
 
@@ -551,6 +601,7 @@ const dom = {
   btnErrorReload: document.getElementById('btn-error-reload'),
   // start screen
   screenStart: document.getElementById('screen-start'),
+  startHero: document.querySelector('#screen-start .hero'),
   btnPlay: document.getElementById('btn-play'),
   btnPlayLabel: document.getElementById('btn-play-label'),
   btnModeLearn: document.getElementById('btn-mode-learn'),
@@ -573,6 +624,7 @@ const dom = {
   hudProgressSegments: document.getElementById('hud-progress-segments'),
   hudScore: document.getElementById('hud-score'),
   hudScorePill: document.getElementById('hud-score-pill'),
+  hudCoinIcon: document.querySelector('#hud-score-pill .hud-icon--coin'),
   hudStreak: document.getElementById('hud-streak'),
   hudStreakPill: document.getElementById('hud-streak-pill'),
   hudLives: document.getElementById('hud-lives'),
@@ -585,6 +637,7 @@ const dom = {
   gatesRoot: document.getElementById('gates'),
   player: document.getElementById('player'),
   playerLean: document.getElementById('player-lean'),
+  playerFrame: document.querySelector('.player-frame'),
   playerImg: document.getElementById('player-img'),
   scorePop: document.getElementById('score-pop'),
   tipText: document.getElementById('tip-text'),
@@ -615,6 +668,7 @@ const dom = {
   btnCompleteMenu: document.getElementById('btn-complete-menu'),
   // game over
   screenGameOver: document.getElementById('screen-gameover'),
+  gameOverTitle: document.getElementById('gameover-title'),
   gameOverAnswered: document.getElementById('gameover-answered'),
   gameOverCorrect: document.getElementById('gameover-correct'),
   gameOverScore: document.getElementById('gameover-score'),
@@ -651,7 +705,7 @@ let fatalHandled = false;
 let devBarLastUpdate = 0;
 let feedbackAutoContinueTimer = null;
 let activeFeedbackIsCorrect = null;
-let feedbackPaused = false;
+let activeLaneMap = [];
 
 /* ========================================================================
  * 3. Development helpers (centralized; everything gated behind DEBUG)
@@ -674,8 +728,7 @@ function updateDebugBar(now) {
   dom.devLane.textContent = `lane ${snap.playerLane ?? '–'}`;
   dom.devProgress.textContent =
     `gate ${Math.round(gateVisualProgress * 100)}% · ${world.layoutName} · ` +
-    `${world.effectiveSpeed.toFixed(3)} depth/s · ${world.markers.length} markers · ` +
-    `texture ${world.roadTextureOffset.toFixed(3)}`;
+    `${world.effectiveSpeed.toFixed(3)} depth/s · ${world.markers.length} markers`;
   dom.devQuestion.textContent = snap.question ? snap.question.id : '–';
 }
 
@@ -752,7 +805,6 @@ function recreateEngine() {
   resetFeedbackFlow();
   engine = new ArticleRunnerEngine({ data: gameData, mode: selectedMode });
   bindEngineEvents();
-  dom.player.classList.remove('is-running'); // fresh engine starts in READY
   if (DEBUG) window.articleRunnerDebug = { get engine() { return engine; } };
 }
 
@@ -769,7 +821,7 @@ function bindEngineEvents() {
     logEvent('level:started', payload);
     resetFeedbackFlow();
     resetCoinSession();
-    resetPlayerAnimation(); // only a new/restarted level restarts the gait
+    resetPlayerFlightAnimation();
     clearStartNote();
     renderHUD();
   });
@@ -804,10 +856,20 @@ function bindEngineEvents() {
     logEvent('game:over', payload);
     renderGameOver(payload.summary);
   });
-  engine.on('game:paused', () => logEvent('game:paused'));
-  engine.on('game:resumed', () => {
-    logEvent('game:resumed');
+  engine.on('game:paused', (payload) => {
+    logEvent('game:paused', payload);
+  });
+  engine.on('game:resumed', (payload) => {
+    logEvent('game:resumed', payload);
     deferCoinSpawn(COIN_CONFIG.resumeGraceMs);
+    if (payload.toState === GAME_STATES.FEEDBACK) {
+      renderPause(false);
+      if (activeFeedbackIsCorrect === true) {
+        scheduleAutoContinue(CORRECT_RESUME_AUTO_CONTINUE_MS);
+      } else {
+        requestAnimationFrame(() => dom.btnContinue.focus({ preventScroll: true }));
+      }
+    }
   });
   engine.on('progress:reset', () => {
     logEvent('progress:reset');
@@ -818,11 +880,6 @@ function bindEngineEvents() {
 function handleStateChanged({ to }) {
   if (to !== GAME_STATES.PLAYING) cancelLaneGesture();
 
-  // The fox runs while the engine is PLAYING and keeps trotting through
-  // FEEDBACK (slowed by the world crawl in the loop); every other state
-  // freezes the exact image + phase-driven shadow values.
-  const running = to === GAME_STATES.PLAYING || to === GAME_STATES.FEEDBACK;
-  dom.player.classList.toggle('is-running', running);
   updateAnswerDockState(to);
   switch (to) {
     case GAME_STATES.READY:
@@ -847,14 +904,14 @@ function handleStateChanged({ to }) {
       break;
     case GAME_STATES.LEVEL_COMPLETE:
       resetFeedbackFlow();
-      showStablePlayerPose();
+      settlePlayerFlightPose();
       renderPause(false);
       renderLevelList();
       showScreen('complete');
       break;
     case GAME_STATES.GAME_OVER:
       resetFeedbackFlow();
-      showStablePlayerPose();
+      settlePlayerFlightPose();
       renderPause(false);
       renderLevelList();
       showScreen('gameover');
@@ -897,6 +954,7 @@ function showScreen(name) {
 function renderPause(visible) {
   const wasHidden = dom.overlayPause.classList.contains('hidden');
   dom.overlayPause.classList.toggle('hidden', !visible);
+  dom.screenGame.toggleAttribute('inert', visible);
   dom.screenGame.classList.toggle('is-coin-paused', visible);
   if (visible && wasHidden) {
     pauseReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -929,8 +987,7 @@ const hudPainted = { streak: null };
 /** Restart a one-shot animation class on an element. */
 function retriggerAnimation(el, className) {
   el.classList.remove(className);
-  void el.offsetWidth; // flush so the class removal takes effect
-  el.classList.add(className);
+  requestAnimationFrame(() => el.classList.add(className));
 }
 
 function renderCoinHud(pulse = false) {
@@ -1059,8 +1116,7 @@ function renderQuestion(payload) {
   blank.textContent = '_______';
   dom.sentence.append(blank, document.createTextNode(after));
 
-  const rule = gameData.ruleCatalog.find((item) => item.id === payload.question.rule);
-  const tip = rule?.summary ?? 'Read the whole sentence before choosing an article.';
+  const tip = 'Read the whole sentence. Decide whether the noun is new, known, or general.';
   const hint = RULE_HINTS[payload.question.rule] ?? 'Look at what the noun means in this sentence.';
   if (dom.tipText) dom.tipText.textContent = tip;
   if (dom.hintText) dom.hintText.textContent = hint;
@@ -1070,7 +1126,8 @@ function renderQuestion(payload) {
     dom.scorePop.classList.remove('is-visible');
   }
 
-  renderLanes(payload.laneMap);
+  activeLaneMap = [...payload.laneMap];
+  renderLanes(activeLaneMap);
   renderAnswerDock(payload.laneMap);
   renderPlayer(payload.playerLane);
   highlightChosenGate(payload.playerLane);
@@ -1137,7 +1194,8 @@ function updateAnswerDockState(state) {
 
 function renderPlayer(lane) {
   world.playerLane = lane;
-  dom.player.style.left = PLAYER_LANE_POSITIONS[lane];
+  dom.runner.dataset.playerLane = String(lane);
+  beginPlayerLaneTransition(lane);
   roadGuideEls.forEach((guide, index) => guide.classList.toggle('is-active', index === lane));
 }
 
@@ -1154,24 +1212,9 @@ function renderLaneGuides() {
   });
 }
 
-/**
- * Subtle directional lean during a lane change: a 3deg tilt applied to the
- * container (with the same easing/duration as the lane slide) and removed a
- * moment later, so the fox straightens as it settles. Purely cosmetic — the
- * engine's lane value remains the only source of truth.
- */
-let laneLeanTimer = null;
-
 function applyLaneLean(from, to) {
   if (from === null || from === undefined || from === to) return;
-  // Toggle directly between directions so rapid changes interpolate from the
-  // current angle instead of snapping through neutral via a forced reflow.
-  dom.playerLean.classList.toggle('lean-right', to > from);
-  dom.playerLean.classList.toggle('lean-left', to < from);
-  clearTimeout(laneLeanTimer);
-  laneLeanTimer = setTimeout(() => {
-    dom.playerLean.classList.remove('lean-left', 'lean-right');
-  }, 190);
+  setPlayerBankDirection(Math.sign(to - from));
 }
 
 function highlightChosenGate(lane) {
@@ -1263,6 +1306,87 @@ function nextRoadDetailRandom(detail) {
   return detail.randomState / 4294967296;
 }
 
+function nextSceneryRandom(item) {
+  item.randomState = (Math.imul(item.randomState, 1664525) + 1013904223) >>> 0;
+  return item.randomState / 4294967296;
+}
+
+function randomizeSceneryObject(item) {
+  const types = SCENERY_TYPES[item.layer];
+  let typeIndex = Math.floor(nextSceneryRandom(item) * types.length);
+  if (types.length > 1 && types[typeIndex] === item.type) {
+    typeIndex = (typeIndex + 1) % types.length;
+  }
+  item.type = types[typeIndex];
+  item.edgeOffset = item.layer === 'mid'
+    ? lerp(0.022, 0.078, nextSceneryRandom(item))
+    : lerp(0.018, 0.108, nextSceneryRandom(item));
+  item.size = item.layer === 'mid'
+    ? lerp(0.76, 0.98, nextSceneryRandom(item))
+    : lerp(0.82, 1.14, nextSceneryRandom(item));
+  const maxRotation = item.layer === 'mid' ? 2.2 : 4;
+  item.rotation = lerp(-maxRotation, maxRotation, nextSceneryRandom(item));
+  item.alpha = item.layer === 'mid'
+    ? lerp(0.56, 0.74, nextSceneryRandom(item))
+    : lerp(0.7, 0.9, nextSceneryRandom(item));
+  item.el.className =
+    `scenery-object scenery-object--${item.type} ` +
+    `scenery-object--${item.side < 0 ? 'left' : 'right'}`;
+  item.el.dataset.sceneryType = item.type;
+}
+
+function buildSceneryWorld() {
+  if (!dom.scene || world.scenery.farLayer) return;
+
+  const makeLayer = (name) => {
+    const layer = document.createElement('div');
+    layer.className = `scenery-layer scenery-${name}`;
+    layer.setAttribute('aria-hidden', 'true');
+    dom.scene.appendChild(layer);
+    return layer;
+  };
+
+  world.scenery.farLayer = makeLayer('far');
+  world.scenery.midLayer = makeLayer('mid');
+  world.scenery.nearLayer = makeLayer('near');
+
+  const buildPool = (layerName, countPerSide, container) => {
+    for (const side of [-1, 1]) {
+      for (let slot = 0; slot < countPerSide; slot += 1) {
+        const el = document.createElement('div');
+        el.setAttribute('aria-hidden', 'true');
+        container.appendChild(el);
+        const stagger = side > 0 ? 0.5 : 0;
+        const depth = 0.025 + ((slot + stagger) / countPerSide) * 0.97;
+        const item = {
+          el,
+          layer: layerName,
+          side,
+          slot,
+          depth,
+          active: true,
+          type: '',
+          edgeOffset: 0,
+          size: 1,
+          rotation: 0,
+          alpha: 1,
+          randomState: (
+            0x6d2b79f5 ^
+            Math.imul(slot + 1, 0x85ebca6b) ^
+            Math.imul(side + 2, 0xc2b2ae35) ^
+            (layerName === 'near' ? 0x9e3779b9 : 0)
+          ) >>> 0,
+        };
+        randomizeSceneryObject(item);
+        world.scenery[layerName].push(item);
+      }
+    }
+  };
+
+  buildPool('mid', SCENERY_DENSITY.desktop.mid, world.scenery.midLayer);
+  buildPool('near', SCENERY_DENSITY.desktop.near, world.scenery.nearLayer);
+}
+
 function recycleRoadDetail(detail) {
   const family = ROAD_DETAIL_FAMILIES[detail.family];
   if (family?.length) {
@@ -1297,6 +1421,7 @@ function buildRoadWorld() {
   const layer = roadLayer();
   if (!layer) return;
   world.built = true;
+  buildSceneryWorld();
 
   const make = (cls) => {
     const el = document.createElement('div');
@@ -1372,6 +1497,11 @@ function rebuildWorldGeometry() {
   world.nearLaneSpacing = layout.nearLaneSpacing;
   world.playerDepth = layout.playerDepth;
   world.perspectivePower = layout.perspectivePower;
+  world.playerHalfWidth = lerp(
+    world.farHalfWidth,
+    world.nearHalfWidth,
+    Math.pow(world.playerDepth, world.perspectivePower),
+  );
   world.baseSpeed = layout.worldSpeed * (prefersReducedMotion ? ROAD_MOTION.reducedFactor : 1);
   world.speed = world.baseSpeed;
   world.effectiveSpeed = world.baseSpeed * world.motionRate;
@@ -1393,6 +1523,7 @@ function rebuildWorldGeometry() {
     const lanePoint = projectLanePoint(world.playerDepth, lane);
     dom.runner.style.setProperty(`--lane-x-${lane}`, `${(lanePoint.x * 100).toFixed(2)}%`);
   }
+  syncPlayerFlightToLayout();
   dom.runner.style.setProperty('--lane-marker-width', `${layout.markerWidthPx}px`);
   dom.runner.style.setProperty('--lane-marker-height', `${layout.markerHeightPx}px`);
 
@@ -1423,6 +1554,23 @@ function rebuildWorldGeometry() {
     detail.el.hidden = !detail.active;
     sizeRoadDetail(detail, laneWidthAtPlayer);
   });
+  const sceneryDensity = SCENERY_DENSITY[world.layoutName] ?? SCENERY_DENSITY.desktop;
+  for (const layerName of ['mid', 'near']) {
+    const poolSize = SCENERY_DENSITY.desktop[layerName];
+    const activeCount = sceneryDensity[layerName];
+    const activeSlots = new Set(
+      Array.from(
+        { length: activeCount },
+        (_, index) => Math.round(index * poolSize / activeCount) % poolSize,
+      ),
+    );
+    for (const item of world.scenery[layerName]) {
+      // Keep lower-density layouts evenly spread through depth instead of
+      // activating one clustered prefix of the desktop pool.
+      item.active = activeSlots.has(item.slot);
+      item.el.hidden = !item.active;
+    }
+  }
   const dustBase = Math.max(10, Math.min(28, world.W * 0.02));
   world.dusts.forEach((p) => {
     p.el.style.width = `${(dustBase * p.size).toFixed(1)}px`;
@@ -1531,6 +1679,7 @@ function drawCodedRoad(layout) {
  * changes); keeps the world intact across resizes and breakpoints. */
 function renderWorldStatic() {
   if (!world.built || world.W < 40) return;
+  renderSceneryLayers();
   for (const marker of world.markers) renderMarker(marker);
   for (const detail of world.details) renderRoadDetail(detail);
   for (const p of world.dusts) renderDust(p);
@@ -1565,6 +1714,66 @@ function renderRoadDetail(detail) {
   detail.el.style.opacity = (detail.alpha * visibility * (0.48 + 0.52 * p.t)).toFixed(2);
 }
 
+function renderFarScenery() {
+  if (!world.scenery.farLayer) return;
+  const drift = Math.sin(world.scenery.farPhase * Math.PI * 2) * 1.25;
+  world.scenery.farLayer.style.transform =
+    `translate3d(0, ${drift.toFixed(2)}px, 0) scale(1.008)`;
+}
+
+function renderSceneryObject(item) {
+  if (!item.active) return;
+  const p = projectSceneryPoint(item.depth, item.side, item.edgeOffset);
+  const layerScale = item.layer === 'mid' ? 0.72 : 1;
+  const scale = Math.max(0.12, p.scale * item.size * layerScale);
+  const baseWidth = SCENERY_BASE_WIDTH_PX[item.type] ?? 84;
+  const layoutScale = SCENERY_LAYOUT_SCALE[world.layoutName] ?? 1;
+  const objectHalfWidth = (baseWidth * layoutScale * scale * 0.5) / world.W;
+  const innerEdgeX = p.x;
+  // projectSceneryPoint clears the shoulder; adding the sprite half-width
+  // keeps the full object, not merely its center, outside the active road.
+  p.x += item.side * objectHalfWidth;
+  const horizonFade = clamp01((p.t - 0.012) / 0.13);
+  const exitFade = 1 - clamp01((item.depth - 0.985) / 0.07);
+  const shoulderRoom = Math.max(0, 0.5 - Math.abs(innerEdgeX - world.centerX));
+  const edgeFade = clamp01(shoulderRoom / Math.max(0.001, objectHalfWidth * 2));
+  const opacity = item.alpha * horizonFade * exitFade * edgeFade;
+  const perspectiveTurn = item.type === 'fence' ? item.side * p.t * 1.1 : 0;
+  item.el.style.zIndex = String(1 + Math.round(p.t * 60));
+  item.el.style.transform =
+    `translate3d(${(p.x * world.W).toFixed(1)}px, ${(p.y * world.H).toFixed(1)}px, 0) ` +
+    `translate(-50%, -100%) rotate(${(item.rotation + perspectiveTurn).toFixed(2)}deg) ` +
+    `scale(${scale.toFixed(3)})`;
+  item.el.style.opacity = opacity.toFixed(3);
+}
+
+function renderSceneryLayers() {
+  renderFarScenery();
+  for (const item of world.scenery.mid) renderSceneryObject(item);
+  for (const item of world.scenery.near) renderSceneryObject(item);
+}
+
+function updateSceneryMotion(worldAdvance) {
+  if (!world.scenery.farLayer || worldAdvance <= 0) return;
+  world.scenery.farPhase =
+    (world.scenery.farPhase + worldAdvance * SCENERY_PARALLAX.far) % 1;
+  renderFarScenery();
+
+  for (const layerName of ['mid', 'near']) {
+    const ratio = layerName === 'mid'
+      ? SCENERY_PARALLAX.mid
+      : SCENERY_PARALLAX.near[world.layoutName];
+    for (const item of world.scenery[layerName]) {
+      item.depth += worldAdvance * ratio;
+      if (item.depth >= SCENERY_DEPTH_LIMIT) {
+        item.depth = 0.025 + (item.depth - SCENERY_DEPTH_LIMIT);
+        randomizeSceneryObject(item);
+      }
+      renderSceneryObject(item);
+    }
+  }
+}
+
 function renderDust(puff) {
   if (puff.born <= 0) {
     puff.el.style.opacity = '0';
@@ -1593,6 +1802,7 @@ function updateWorldMotion(dt, rate, playerAnimFactor) {
   world.effectiveSpeed = world.baseSpeed * rate;
 
   if (worldAdvance > 0) {
+    updateSceneryMotion(worldAdvance);
     for (const marker of world.markers) {
       marker.depth += markerAdvance;
       if (marker.depth >= 1) marker.depth -= 1;
@@ -1613,13 +1823,6 @@ function updateWorldMotion(dt, rate, playerAnimFactor) {
         renderDust(puff);
       }
     }
-
-    world.roadTextureOffset +=
-      worldAdvance * ROAD_MOTION.textureMultiplier * ROAD_MOTION.texturePixelsPerDepth;
-    dom.runner.style.setProperty(
-      '--road-texture-offset-px',
-      `${world.roadTextureOffset.toFixed(2)}px`,
-    );
 
     // Dust spawning at the fox's ground line (skipped under reduced motion).
     if (!prefersReducedMotion && playerAnimFactor > 0) {
@@ -1791,8 +1994,9 @@ function createCoinBurst(x, y) {
   burst.style.setProperty('--coin-burst-x', `${x.toFixed(1)}px`);
   burst.style.setProperty('--coin-burst-y', `${y.toFixed(1)}px`);
 
-  for (let index = 0; index < COIN_CONFIG.sparkCount; index += 1) {
-    const angle = (Math.PI * 2 * index) / COIN_CONFIG.sparkCount + randRange(-0.16, 0.16);
+  const sparkCount = world.layoutName === 'mobile' ? 4 : COIN_CONFIG.sparkCount;
+  for (let index = 0; index < sparkCount; index += 1) {
+    const angle = (Math.PI * 2 * index) / sparkCount + randRange(-0.16, 0.16);
     const distance = randRange(18, 31);
     const spark = document.createElement('i');
     spark.className = 'coin-spark';
@@ -1818,9 +2022,7 @@ function finishCoinFlight(flight) {
   renderCoinHud(true);
 }
 
-function createCoinFlight(sourceRect) {
-  const target = dom.hudScorePill.querySelector('.hud-icon--coin') ?? dom.hudScorePill;
-  const targetRect = target.getBoundingClientRect();
+function createCoinFlight(sourceRect, targetRect) {
   if (targetRect.width <= 0 || targetRect.height <= 0) {
     coinSystem.displayed = Math.min(coinSystem.collected, coinSystem.displayed + 1);
     renderCoinHud(true);
@@ -1858,7 +2060,12 @@ function createCoinFlight(sourceRect) {
 function collectCoin(coin) {
   if (!coin.active || coin.collected) return;
   coin.collected = true;
+  // Read both endpoints before hiding the road coin to avoid a
+  // read/write/read layout cycle at collection time.
   const rect = coin.el.getBoundingClientRect();
+  const targetRect = prefersReducedMotion
+    ? null
+    : (dom.hudCoinIcon ?? dom.hudScorePill).getBoundingClientRect();
   releaseCoin(coin);
   coinSystem.collected += 1;
 
@@ -1871,7 +2078,7 @@ function collectCoin(coin) {
   const x = rect.left + rect.width / 2;
   const y = rect.top + rect.height / 2;
   createCoinBurst(x, y);
-  createCoinFlight(rect);
+  createCoinFlight(rect, targetRect);
 }
 
 function settleCoinEffectsForReducedMotion() {
@@ -1885,7 +2092,7 @@ function updateCoins(deltaMs, dt, rate, state) {
   if (coinSystem.pool.length === 0 || world.W < 40) return;
   const advance = world.speed * rate * dt;
   const playerLane = state === GAME_STATES.PLAYING || state === GAME_STATES.FEEDBACK
-    ? engine.getSnapshot().playerLane
+    ? world.playerLane
     : null;
 
   if (advance > 0) {
@@ -1955,7 +2162,7 @@ function updateGateVisual(dt, state) {
 }
 
 function renderGates() {
-  const laneMap = engine.laneMap;
+  const laneMap = activeLaneMap;
   if (!laneMap || laneMap.length === 0) return;
   // Container-query sizes only resolve on screen — measure lazily on the
   // first visible frame rather than while #screen-game is display:none.
@@ -2032,21 +2239,20 @@ function clearFeedbackAutoContinue() {
 function resetFeedbackFlow() {
   clearFeedbackAutoContinue();
   activeFeedbackIsCorrect = null;
-  feedbackPaused = false;
 }
 
-function scheduleAutoContinue(delay = CORRECT_AUTO_CONTINUE_MS) {
+function scheduleAutoContinue(delay) {
   clearFeedbackAutoContinue();
+  const safeDelay = Number.isFinite(delay) ? Math.max(0, delay) : 0;
   feedbackAutoContinueTimer = window.setTimeout(() => {
     feedbackAutoContinueTimer = null;
     if (
       engine?.state === GAME_STATES.FEEDBACK &&
-      activeFeedbackIsCorrect === true &&
-      !feedbackPaused
+      activeFeedbackIsCorrect === true
     ) {
       continueAfterFeedback('auto');
     }
-  }, delay);
+  }, safeDelay);
 }
 
 function hideFeedback() {
@@ -2062,11 +2268,10 @@ function renderFeedback(result) {
 
   clearFeedbackAutoContinue();
   activeFeedbackIsCorrect = result.isCorrect;
-  feedbackPaused = false;
 
   // World slow-motion through the feedback moment: a short full-speed burst
   // (the fox punches through the gate), then the world settles to a crawl —
-  // correct answers keep trotting, wrong answers hesitate harder.
+  // the flying pose stays composed while the gate feedback remains readable.
   world.feedbackT = 0;
   world.crawl = result.isCorrect ? ROAD_MOTION.crawlCorrect : ROAD_MOTION.crawlWrong;
 
@@ -2087,6 +2292,7 @@ function renderFeedback(result) {
   dom.feedback.classList.add(result.isCorrect ? 'feedback-correct' : 'feedback-wrong');
   dom.screenGame.classList.add('is-feedback');
   dom.feedbackTitle.textContent = result.isCorrect ? 'Correct!' : 'Not quite';
+  if (dom.tipText) dom.tipText.textContent = result.explanation;
 
   // Rebuild from the exact source blank so the highlight always marks the
   // inserted answer, never an earlier matching substring such as the "a" in
@@ -2108,7 +2314,7 @@ function renderFeedback(result) {
   }
 
   if (result.isCorrect) {
-    dom.feedbackDetail.textContent = `+${result.pointsGained} points`;
+    dom.feedbackDetail.textContent = `+${result.pointsGained} points · ${result.explanation}`;
     if (dom.scorePop) {
       dom.scorePop.textContent = `+${result.pointsGained}`;
       retriggerAnimation(dom.scorePop, 'is-visible');
@@ -2124,7 +2330,7 @@ function renderFeedback(result) {
   dom.btnContinue.hidden = result.isCorrect;
   dom.btnContinue.disabled = result.isCorrect;
   if (result.isCorrect) {
-    scheduleAutoContinue();
+    scheduleAutoContinue(result.feedbackDelayMs);
   } else {
     dom.btnContinue.focus({ preventScroll: true });
   }
@@ -2172,6 +2378,7 @@ function renderLevelComplete(summary) {
   } else {
     dom.btnNextLevel.classList.add('hidden');
   }
+  requestAnimationFrame(() => dom.completeTitle.focus({ preventScroll: true }));
 }
 
 function nextLevelAfter(levelId) {
@@ -2184,6 +2391,7 @@ function renderGameOver(summary) {
   dom.gameOverCorrect.textContent = summary.correct;
   dom.gameOverScore.textContent = summary.score;
   dom.gameOverStreak.textContent = summary.bestStreak;
+  requestAnimationFrame(() => dom.gameOverTitle.focus({ preventScroll: true }));
 }
 
 /* ========================================================================
@@ -2273,12 +2481,14 @@ function renderLevelList() {
 /** Open/close the level-selection overlay (focus returns to its trigger). */
 function openLevelModal() {
   dom.levelModal.classList.remove('hidden');
+  dom.startHero?.setAttribute('inert', '');
   dom.btnLevelsClose.focus({ preventScroll: true });
 }
 
 function closeLevelModal() {
   if (dom.levelModal.classList.contains('hidden')) return;
   dom.levelModal.classList.add('hidden');
+  dom.startHero?.removeAttribute('inert');
   dom.btnLevels.focus({ preventScroll: true });
 }
 
@@ -2297,9 +2507,8 @@ async function startGame(levelId) {
   if (startGamePending) return;
   startGamePending = true;
   try {
-    // The startup preloader resolves this shared promise only after every run
-    // phase has decoded, guarding the first stride on slower devices.
-    await runFramesReady;
+    // The game never starts until the single player image is decoded.
+    await playerAssetReady;
     engine.startLevel(levelId, { mode: selectedMode });
   } catch (error) {
     logError('startLevel', error);
@@ -2399,6 +2608,10 @@ function renderLaneDrag(deltaX) {
 }
 
 function resetLaneDragVisual() {
+  const dragOffset = Number.parseFloat(
+    dom.player.style.getPropertyValue('--player-drag-x'),
+  ) || 0;
+  absorbPlayerDragOffset(dragOffset);
   dom.player.classList.remove('is-dragging');
   dom.playerLean.classList.remove('is-dragging');
   dom.player.style.removeProperty('--player-drag-x');
@@ -2516,6 +2729,43 @@ function finishLaneGesture(event, cancelled = false) {
   }
 }
 
+const DIALOG_FOCUSABLE_SELECTOR = [
+  'button:not([disabled])',
+  '[href]',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',');
+
+function activeModalDialog() {
+  if (!dom.overlayPause.classList.contains('hidden')) return dom.overlayPause;
+  if (!dom.levelModal.classList.contains('hidden')) return dom.levelModal;
+  return null;
+}
+
+function trapDialogFocus(event) {
+  if (event.key !== 'Tab') return false;
+  const dialog = activeModalDialog();
+  if (!dialog) return false;
+  const focusable = [...dialog.querySelectorAll(DIALOG_FOCUSABLE_SELECTOR)]
+    .filter((element) => !element.hidden && element.getClientRects().length > 0);
+  if (focusable.length === 0) {
+    event.preventDefault();
+    return true;
+  }
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+  return true;
+}
+
 function bindUiEvents() {
   // -- start screen --
   dom.btnPlay.addEventListener('click', () => {
@@ -2524,6 +2774,22 @@ function bindUiEvents() {
   });
   dom.btnModeLearn.addEventListener('click', () => setMode(GAME_MODES.LEARN));
   dom.btnModeArcade.addEventListener('click', () => setMode(GAME_MODES.ARCADE));
+  [dom.btnModeLearn, dom.btnModeArcade].forEach((button, index, buttons) => {
+    button.addEventListener('keydown', (event) => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const targetIndex = event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? buttons.length - 1
+          : event.key === 'ArrowLeft'
+            ? (index - 1 + buttons.length) % buttons.length
+            : (index + 1) % buttons.length;
+      const mode = targetIndex === 0 ? GAME_MODES.LEARN : GAME_MODES.ARCADE;
+      setMode(mode);
+      buttons[targetIndex].focus();
+    });
+  });
   dom.btnLevels.addEventListener('click', openLevelModal);
   dom.btnLevelsClose.addEventListener('click', closeLevelModal);
   // tapping the scrim (not the card) dismisses the overlay
@@ -2630,6 +2896,12 @@ function bindUiEvents() {
     reducedMotionQuery.addListener(handleReducedMotionChange);
   }
 
+  // Resume from a fresh clock origin instead of simulating time spent in a
+  // throttled or suspended background tab.
+  document.addEventListener('visibilitychange', () => {
+    lastFrameTime = null;
+  });
+
   // -- responsive geometry: normalized road phases survive every resize;
   //    only their projection and intrinsic sizes are recalculated. --
   buildRoadWorld(); // pooled road objects exist before the first level
@@ -2649,8 +2921,10 @@ function setMode(mode) {
   selectedMode = mode;
   dom.btnModeLearn.classList.toggle('is-active', mode === GAME_MODES.LEARN);
   dom.btnModeArcade.classList.toggle('is-active', mode === GAME_MODES.ARCADE);
-  dom.btnModeLearn.setAttribute('aria-pressed', String(mode === GAME_MODES.LEARN));
-  dom.btnModeArcade.setAttribute('aria-pressed', String(mode === GAME_MODES.ARCADE));
+  dom.btnModeLearn.setAttribute('aria-checked', String(mode === GAME_MODES.LEARN));
+  dom.btnModeArcade.setAttribute('aria-checked', String(mode === GAME_MODES.ARCADE));
+  dom.btnModeLearn.tabIndex = mode === GAME_MODES.LEARN ? 0 : -1;
+  dom.btnModeArcade.tabIndex = mode === GAME_MODES.ARCADE ? 0 : -1;
   renderLevelList();
 }
 
@@ -2666,6 +2940,7 @@ function movePlayerToLane(lane) {
 }
 
 function handleKeydown(event) {
+  if (trapDialogFocus(event)) return;
   // The start screen owns Escape while the level overlay is open.
   if (currentScreen === 'start' && event.key === 'Escape') {
     if (engine && !dom.levelModal.classList.contains('hidden')) closeLevelModal();
@@ -2690,7 +2965,7 @@ function handleKeydown(event) {
       if (state === GAME_STATES.PLAYING) {
         safeEngineCall(() => engine.moveLeft());
         if (focusedAnswer) {
-          answerChoiceEls[engine.getSnapshot().playerLane]?.focus({ preventScroll: true });
+          answerChoiceEls[engine.playerLane]?.focus({ preventScroll: true });
         }
       }
       break;
@@ -2700,7 +2975,7 @@ function handleKeydown(event) {
       if (state === GAME_STATES.PLAYING) {
         safeEngineCall(() => engine.moveRight());
         if (focusedAnswer) {
-          answerChoiceEls[engine.getSnapshot().playerLane]?.focus({ preventScroll: true });
+          answerChoiceEls[engine.playerLane]?.focus({ preventScroll: true });
         }
       }
       break;
@@ -2718,10 +2993,7 @@ function handleKeydown(event) {
       break;
     case ' ':
     case 'Enter':
-      if (state === GAME_STATES.FEEDBACK && feedbackPaused) {
-        event.preventDefault();
-        togglePause();
-      } else if (state === GAME_STATES.FEEDBACK) continueAfterFeedback('manual');
+      if (state === GAME_STATES.FEEDBACK) continueAfterFeedback('manual');
       else if (state === GAME_STATES.PAUSED) togglePause();
       else handled = state === GAME_STATES.PLAYING; // don't swallow space while playing
       break;
@@ -2745,21 +3017,7 @@ function safeEngineCall(action) {
 
 function togglePause() {
   const state = engine.state;
-  if (state === GAME_STATES.FEEDBACK) {
-    if (feedbackPaused) {
-      feedbackPaused = false;
-      renderPause(false);
-      if (activeFeedbackIsCorrect) {
-        scheduleAutoContinue(CORRECT_RESUME_AUTO_CONTINUE_MS);
-      } else {
-        requestAnimationFrame(() => dom.btnContinue.focus({ preventScroll: true }));
-      }
-    } else {
-      feedbackPaused = true;
-      clearFeedbackAutoContinue();
-      renderPause(true);
-    }
-  } else if (state === GAME_STATES.PLAYING) {
+  if (state === GAME_STATES.PLAYING || state === GAME_STATES.FEEDBACK) {
     safeEngineCall(() => engine.pause());
   } else if (state === GAME_STATES.PAUSED) {
     safeEngineCall(() => engine.resume());
@@ -2767,7 +3025,7 @@ function togglePause() {
 }
 
 function continueAfterFeedback(source = 'manual') {
-  if (engine.state !== GAME_STATES.FEEDBACK || feedbackPaused) return;
+  if (engine.state !== GAME_STATES.FEEDBACK) return;
   const isAutomatic = source === 'auto';
   if (activeFeedbackIsCorrect !== isAutomatic) return;
   clearFeedbackAutoContinue();
@@ -2780,8 +3038,14 @@ function continueAfterFeedback(source = 'manual') {
  *     controller only READS game state and renders the character.
  * ====================================================================== */
 
-/** Single lane-position mapping (values live in CSS on .runner). */
-const PLAYER_LANE_POSITIONS = ['var(--lane-x-0)', 'var(--lane-x-1)', 'var(--lane-x-2)'];
+const PLAYER_FLIGHT = Object.freeze({
+  laneDurationMs: 245,
+  bankMaxDeg: 4.5,
+  bankPeakProgress: 0.28,
+  glideLiftPx: 3,
+  hoverPeriodMs: 1800,
+  hoverAmplitudePx: Object.freeze({ desktop: 3, tablet: 2.5, mobile: 2 }),
+});
 
 const reducedMotionQuery =
   typeof window !== 'undefined' && window.matchMedia
@@ -2789,13 +3053,21 @@ const reducedMotionQuery =
     : null;
 let prefersReducedMotion = reducedMotionQuery?.matches ?? false;
 
-let runFrameIndex = 0;
-let runFrameAccumulator = 0;
-let runFramesReady = Promise.resolve(false);
-/** Keep decoded Image instances alive so swaps always hit decoded cache. */
-let decodedRunImages = [];
-/** Never cycle a partial gait: eight decoded phases or one planted fallback. */
-let runtimeRunFrames = [{ ...RUN_PHASES[STABLE_RUN_FRAME_INDEX] }];
+let playerAssetReady = Promise.resolve(false);
+const playerFlight = {
+  ready: false,
+  currentX: 0,
+  startX: 0,
+  targetX: 0,
+  targetLane: 1,
+  elapsedMs: 0,
+  moving: false,
+  bankDirection: 0,
+  bankStartDeg: 0,
+  bankDeg: 0,
+  glideY: 0,
+  hoverClockMs: 0,
+};
 
 /* ------------------------------------------------------------------------
  * Startup image preloader
@@ -3025,60 +3297,74 @@ function showLoaderError(title, message, action = 'retry') {
   requestAnimationFrame(() => dom.loaderRetry.focus({ preventScroll: true }));
 }
 
-function applyPreloadedGameplayAssets(manifest) {
-  const runEntries = manifest
-    .filter((entry) => entry.kind === 'run-frame')
-    .sort((a, b) => a.frameIndex - b.frameIndex);
-  const runResults = runEntries.map((entry) => decodedAssetsById.get(entry.id));
-
-  if (runResults.length === RUN_PHASES.length && runResults.every(Boolean)) {
-    decodedRunImages = runResults.map((result) => result.image);
-    runtimeRunFrames = runResults.map((result) => ({
-      ...RUN_PHASES[result.entry.frameIndex],
-      src: result.src,
-    }));
-    showStablePlayerPose();
+function prepareFlyingPlayerElement(src = FLYING_FOX_SRC) {
+  if (!dom.playerImg) return;
+  const flightWrapper = dom.playerFrame?.parentElement;
+  flightWrapper?.classList.remove('player-run');
+  flightWrapper?.classList.add('player-flight');
+  dom.playerImg.id = 'player-img';
+  dom.playerImg.className = 'player-img';
+  dom.playerImg.src = src;
+  dom.playerImg.alt = '';
+  dom.playerImg.draggable = false;
+  dom.playerImg.decoding = 'async';
+  dom.playerImg.width = 1254;
+  dom.playerImg.height = 1254;
+  if (dom.playerFrame && (
+    dom.playerFrame.children.length !== 1 || dom.playerFrame.firstElementChild !== dom.playerImg
+  )) {
+    dom.playerFrame.replaceChildren(dom.playerImg);
   }
+  dom.player.dataset.flightState = 'gliding';
+}
+
+function applyPreloadedGameplayAssets(manifest) {
+  const playerEntry = manifest.find((entry) => entry.kind === 'player');
+  const playerResult = playerEntry ? decodedAssetsById.get(playerEntry.id) : null;
+  if (playerResult) prepareFlyingPlayerElement(playerResult.src);
 
   const gateEntries = manifest.filter((entry) => entry.kind === 'gate');
   const gatesReady = gateEntries.every((entry) => decodedAssetsById.has(entry.id));
-  dom.gatesRoot.classList.toggle('gates-ready', gatesReady);
   dom.gatesRoot.classList.toggle('gates-art-failed', !gatesReady);
 }
 
 async function preloadGameAssets() {
   const manifest = activePreloadManifest();
+  const criticalManifest = manifest.filter((entry) => entry.critical);
+  const optionalManifest = manifest.filter((entry) => !entry.critical);
   const criticalFailures = [];
   let completed = 0;
   const pending = [];
 
-  for (const entry of manifest) {
-    if (decodedAssetsById.has(entry.id) || (!entry.critical && optionalAssetFailures.has(entry.id))) {
+  for (const entry of criticalManifest) {
+    if (decodedAssetsById.has(entry.id)) {
       completed += 1;
     } else {
       pending.push(entry);
     }
   }
-  updateLoaderProgress(completed, manifest.length);
+  updateLoaderProgress(completed, criticalManifest.length);
 
   await Promise.all(pending.map(async (entry) => {
     try {
       await preloadAsset(entry);
       completed += 1;
     } catch (error) {
-      if (entry.critical) {
-        criticalFailures.push({ entry, error });
-      } else {
-        optionalAssetFailures.add(entry.id);
-        completed += 1;
-        if (DEBUG) console.warn(`[game] optional preload failed: ${entry.id}`, error);
-      }
+      criticalFailures.push({ entry, error });
     } finally {
-      updateLoaderProgress(completed, manifest.length);
+      updateLoaderProgress(completed, criticalManifest.length);
     }
   }));
 
   applyPreloadedGameplayAssets(manifest);
+  // Optional flourishes warm in the background and never hold the loader.
+  for (const entry of optionalManifest) {
+    if (decodedAssetsById.has(entry.id) || optionalAssetFailures.has(entry.id)) continue;
+    void preloadAsset(entry).catch((error) => {
+      optionalAssetFailures.add(entry.id);
+      if (DEBUG) console.warn(`[game] optional preload failed: ${entry.id}`, error);
+    });
+  }
   return { ok: criticalFailures.length === 0, criticalFailures };
 }
 
@@ -3119,9 +3405,12 @@ async function revealLoadedGame() {
 
 async function performBoot() {
   resetLoaderForAttempt();
+  // Replace the markup fallback before document-image decoding so none of the
+  // retired gameplay frames are warmed or mounted by the loader.
+  prepareFlyingPlayerElement();
 
   const preloadPromise = preloadGameAssets();
-  runFramesReady = preloadPromise.then((result) => result.ok, () => false);
+  playerAssetReady = preloadPromise.then((result) => result.ok, () => false);
   const preloadResult = await preloadPromise;
 
   if (!preloadResult.ok) {
@@ -3166,73 +3455,176 @@ function bootGame() {
   return bootPromise;
 }
 
-/**
- * Frames actually cycled in the current motion-preference mode.
- */
-function activeRunFrames() {
-  if (!prefersReducedMotion && runtimeRunFrames.length === RUN_PHASES.length) {
-    return runtimeRunFrames;
-  }
-  const stable = runtimeRunFrames.find(
-    (frame) => frame.id === RUN_PHASES[STABLE_RUN_FRAME_INDEX].id,
-  );
-  return [stable ?? runtimeRunFrames[0] ?? RUN_PHASES[STABLE_RUN_FRAME_INDEX]];
+function easeOutCubic(value) {
+  return 1 - ((1 - clamp01(value)) ** 3);
 }
 
-function activeFrameDuration() {
-  return RUN_FRAME_DURATION_MS;
+function easeInOutSine(value) {
+  return -(Math.cos(Math.PI * clamp01(value)) - 1) / 2;
 }
 
-function paintRunFrame(frame, sourceIndex) {
-  if (!frame) return;
-  dom.player.style.setProperty('--shadow-scale', String(frame.shadowScale));
-  dom.player.style.setProperty('--shadow-opacity', String(frame.shadowOpacity));
-  dom.player.style.setProperty('--shadow-blur', `${frame.shadowBlurPx}px`);
-  dom.player.dataset.runFrame = String(sourceIndex + 1);
-  dom.player.dataset.runPhase = frame.id;
-  if (!dom.playerImg.src.endsWith(frame.src)) dom.playerImg.src = frame.src;
+function playerLaneOffsetPx(lane) {
+  if (world.W < 40) return 0;
+  const lanePoint = projectLanePoint(world.playerDepth, lane);
+  return (lanePoint.x - world.centerX) * world.W;
 }
 
-function applyRunFrame(index) {
-  const frames = activeRunFrames();
-  const frame = frames[index];
-  if (!frame) return;
-  const sourceIndex = RUN_PHASES.findIndex((phase) => phase.id === frame.id);
-  paintRunFrame(frame, Math.max(0, sourceIndex));
+function paintPlayerFlightTransform() {
+  dom.player.style.setProperty('--player-lane-offset', `${playerFlight.currentX.toFixed(2)}px`);
+  dom.player.style.setProperty('--player-bank-angle', `${playerFlight.bankDeg.toFixed(3)}deg`);
+  dom.player.style.setProperty('--player-glide-y', `${playerFlight.glideY.toFixed(2)}px`);
 }
 
-function updatePlayerAnimation(deltaMs) {
-  const frames = activeRunFrames();
-  if (frames.length < 2) {
-    applyRunFrame(0);
+function syncPlayerFlightToLayout() {
+  if (world.W < 40) return;
+  const offset = playerLaneOffsetPx(world.playerLane);
+  playerFlight.ready = true;
+  playerFlight.currentX = offset;
+  playerFlight.startX = offset;
+  playerFlight.targetX = offset;
+  playerFlight.targetLane = world.playerLane;
+  playerFlight.elapsedMs = 0;
+  playerFlight.moving = false;
+  playerFlight.bankDirection = 0;
+  playerFlight.bankStartDeg = 0;
+  playerFlight.bankDeg = 0;
+  playerFlight.glideY = 0;
+  paintPlayerFlightTransform();
+}
+
+function beginPlayerLaneTransition(lane) {
+  if (!Number.isInteger(lane) || lane < 0 || lane > 2 || world.W < 40) return;
+  const targetX = playerLaneOffsetPx(lane);
+
+  if (!playerFlight.ready) {
+    syncPlayerFlightToLayout();
     return;
   }
-  const next = advanceRunClock(
-    { index: runFrameIndex, accumulator: runFrameAccumulator },
-    deltaMs,
-    activeFrameDuration(),
-    frames.length,
+  if (playerFlight.targetLane === lane && playerFlight.moving) return;
+
+  playerFlight.startX = playerFlight.currentX;
+  playerFlight.targetX = targetX;
+  playerFlight.targetLane = lane;
+  playerFlight.elapsedMs = 0;
+  playerFlight.bankStartDeg = playerFlight.bankDeg;
+  playerFlight.bankDirection = Math.sign(targetX - playerFlight.currentX);
+  playerFlight.moving = Math.abs(targetX - playerFlight.currentX) > 0.25;
+
+  if (prefersReducedMotion || !playerFlight.moving) {
+    playerFlight.currentX = targetX;
+    playerFlight.moving = false;
+    playerFlight.bankDirection = 0;
+    playerFlight.bankStartDeg = 0;
+    playerFlight.bankDeg = 0;
+    playerFlight.glideY = 0;
+  }
+  paintPlayerFlightTransform();
+}
+
+function setPlayerBankDirection(direction) {
+  if (prefersReducedMotion || !playerFlight.moving) return;
+  playerFlight.bankStartDeg = playerFlight.bankDeg;
+  playerFlight.bankDirection = Math.sign(direction);
+}
+
+function absorbPlayerDragOffset(offset) {
+  if (!playerFlight.ready || !Number.isFinite(offset) || Math.abs(offset) < 0.05) return;
+  playerFlight.currentX += offset;
+  playerFlight.startX = playerFlight.currentX;
+  playerFlight.targetX = playerLaneOffsetPx(world.playerLane);
+  playerFlight.targetLane = world.playerLane;
+  playerFlight.elapsedMs = 0;
+  playerFlight.bankStartDeg = playerFlight.bankDeg;
+  playerFlight.bankDirection = Math.sign(playerFlight.targetX - playerFlight.currentX);
+  playerFlight.moving = !prefersReducedMotion &&
+    Math.abs(playerFlight.targetX - playerFlight.currentX) > 0.25;
+  if (!playerFlight.moving) playerFlight.currentX = playerFlight.targetX;
+  paintPlayerFlightTransform();
+}
+
+function updatePlayerLaneFlight(deltaMs) {
+  if (!playerFlight.moving) return;
+  playerFlight.elapsedMs = Math.min(
+    PLAYER_FLIGHT.laneDurationMs,
+    playerFlight.elapsedMs + deltaMs,
   );
-  runFrameIndex = next.index;
-  runFrameAccumulator = next.accumulator;
-  applyRunFrame(runFrameIndex);
+  const progress = playerFlight.elapsedMs / PLAYER_FLIGHT.laneDurationMs;
+  playerFlight.currentX = lerp(
+    playerFlight.startX,
+    playerFlight.targetX,
+    easeOutCubic(progress),
+  );
+
+  const peak = PLAYER_FLIGHT.bankPeakProgress;
+  const peakAngle = playerFlight.bankDirection * PLAYER_FLIGHT.bankMaxDeg;
+  if (progress < peak) {
+    playerFlight.bankDeg = lerp(
+      playerFlight.bankStartDeg,
+      peakAngle,
+      easeOutCubic(progress / peak),
+    );
+  } else {
+    playerFlight.bankDeg = lerp(
+      peakAngle,
+      0,
+      easeInOutSine((progress - peak) / (1 - peak)),
+    );
+  }
+  playerFlight.glideY = -Math.sin(Math.PI * progress) * PLAYER_FLIGHT.glideLiftPx;
+
+  if (progress >= 1) {
+    playerFlight.currentX = playerFlight.targetX;
+    playerFlight.moving = false;
+    playerFlight.bankDirection = 0;
+    playerFlight.bankStartDeg = 0;
+    playerFlight.bankDeg = 0;
+    playerFlight.glideY = 0;
+  }
+  paintPlayerFlightTransform();
 }
 
-/** Back to the first push-off only for a genuinely new/restarted level. */
-function resetPlayerAnimation() {
-  runFrameIndex = 0;
-  runFrameAccumulator = 0;
-  applyRunFrame(0);
+function updatePlayerHover(deltaMs) {
+  if (prefersReducedMotion) return;
+  playerFlight.hoverClockMs =
+    (playerFlight.hoverClockMs + deltaMs) % PLAYER_FLIGHT.hoverPeriodMs;
+  const phase = (playerFlight.hoverClockMs / PLAYER_FLIGHT.hoverPeriodMs) * Math.PI * 2;
+  const amplitude = PLAYER_FLIGHT.hoverAmplitudePx[world.layoutName] ?? 3;
+  const hoverY = Math.sin(phase) * amplitude;
+  const normalized = amplitude > 0 ? hoverY / amplitude : 0;
+  dom.player.style.setProperty('--player-hover-y', `${hoverY.toFixed(2)}px`);
+  dom.player.style.setProperty('--player-shadow-scale', (1 + normalized * 0.018).toFixed(4));
+  dom.player.style.setProperty('--player-shadow-opacity', (0.32 + normalized * 0.025).toFixed(3));
 }
 
-function showStablePlayerPose() {
-  const stable = runtimeRunFrames.find(
-    (frame) => frame.id === RUN_PHASES[STABLE_RUN_FRAME_INDEX].id,
-  ) ?? runtimeRunFrames[0] ?? RUN_PHASES[STABLE_RUN_FRAME_INDEX];
-  runFrameIndex = Math.max(0, runtimeRunFrames.indexOf(stable));
-  runFrameAccumulator = 0;
-  const sourceIndex = RUN_PHASES.findIndex((phase) => phase.id === stable.id);
-  paintRunFrame(stable, sourceIndex >= 0 ? sourceIndex : STABLE_RUN_FRAME_INDEX);
+function updatePlayerFlightAnimation(deltaMs, state) {
+  if (state !== GAME_STATES.PLAYING && state !== GAME_STATES.FEEDBACK) return;
+  updatePlayerLaneFlight(deltaMs);
+  updatePlayerHover(deltaMs);
+}
+
+function settlePlayerFlightPose() {
+  playerFlight.hoverClockMs = 0;
+  if (playerFlight.ready && world.W >= 40) {
+    const offset = playerLaneOffsetPx(world.playerLane);
+    playerFlight.currentX = offset;
+    playerFlight.startX = offset;
+    playerFlight.targetX = offset;
+    playerFlight.targetLane = world.playerLane;
+  }
+  playerFlight.elapsedMs = 0;
+  playerFlight.moving = false;
+  playerFlight.bankDirection = 0;
+  playerFlight.bankStartDeg = 0;
+  playerFlight.bankDeg = 0;
+  playerFlight.glideY = 0;
+  dom.player.style.setProperty('--player-hover-y', '0px');
+  dom.player.style.setProperty('--player-shadow-scale', '1');
+  dom.player.style.setProperty('--player-shadow-opacity', '0.32');
+  paintPlayerFlightTransform();
+}
+
+function resetPlayerFlightAnimation() {
+  settlePlayerFlightPose();
 }
 
 function handleReducedMotionChange(event) {
@@ -3240,12 +3632,11 @@ function handleReducedMotionChange(event) {
   const layout = ROAD_LAYOUTS[world.layoutName] ?? ROAD_LAYOUTS.desktop;
   world.baseSpeed = layout.worldSpeed * (prefersReducedMotion ? ROAD_MOTION.reducedFactor : 1);
   world.speed = world.baseSpeed;
-  runFrameAccumulator = 0;
   if (prefersReducedMotion) {
-    showStablePlayerPose();
+    settlePlayerFlightPose();
     settleCoinEffectsForReducedMotion();
   }
-  else applyRunFrame(runFrameIndex % Math.max(1, runtimeRunFrames.length));
+  else playerFlight.hoverClockMs = 0;
 }
 
 /* ========================================================================
@@ -3275,7 +3666,7 @@ function loop(now) {
 
     const visualDeltaMs = Math.min(deltaMs, ROAD_MOTION.maxDeltaMs);
     if (engine.state === GAME_STATES.PLAYING) {
-      engine.update(deltaMs * PLAYING_PACE); // engine clamps huge deltas (tab switches) itself
+      engine.update(deltaMs); // engine clamps huge deltas (tab switches) itself
       // update() can auto-resolve the question (PLAYING → FEEDBACK) and the
       // engine resets its progress — re-check before adopting the value, or
       // the gates would flash back to the horizon on timed resolutions.
@@ -3289,27 +3680,21 @@ function loop(now) {
     const state = engine.state;
 
     if (currentScreen === 'game') {
+      const visualStateActive =
+        state === GAME_STATES.PLAYING || state === GAME_STATES.FEEDBACK;
+      if (!visualStateActive) {
+        updateDebugBar(now);
+        return;
+      }
       // Delta is clamped so a background tab can never teleport the road.
       const dt = visualDeltaMs / 1000;
 
       // Gate pass-through first: it owns the feedback clock (feedbackT).
       updateGateVisual(dt, state);
 
-      // One shared rate drives markers, details, texture, dust, coins and the
-      // fox gait. PLAYING is steady; PAUSED returns zero without changing it.
-      const motionRate = updateRoadMotionRate(dt, state);
-      const rate = state === GAME_STATES.PLAYING
-        ? motionRate * PLAYING_PACE
-        : motionRate;
-      if (state === GAME_STATES.PLAYING) {
-        updatePlayerAnimation(visualDeltaMs);
-      } else if (state === GAME_STATES.FEEDBACK) {
-        // The fox keeps trotting through the feedback moment, matched to the
-        // slow world crawl. Keep the run clock below normal speed; the separate
-        // one-shot reaction wrapper carries the celebratory/hesitation accent.
-        const feedbackRunRate = feedbackRunRateForWorldRate(rate);
-        updatePlayerAnimation(visualDeltaMs * feedbackRunRate);
-      }
+      // One shared rate drives scenery, markers, details, dust and coins.
+      const rate = updateRoadMotionRate(dt, state);
+      updatePlayerFlightAnimation(visualDeltaMs, state);
 
       updateWorldMotion(dt, rate, rate);
       updateCoins(visualDeltaMs, dt, rate, state);

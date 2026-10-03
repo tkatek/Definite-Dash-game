@@ -379,7 +379,7 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 22px;
   border: 0;
   border-radius: 999px;
@@ -398,7 +398,7 @@
 }
 
 /* selected state: filled white pill + dark text + gold inner ring and icon
- * (never color alone — aria-pressed carries the state for assistive tech) */
+ * (never color alone — aria-checked carries the radio state for assistive tech) */
 .mode-btn.is-active {
   background: #ffffff;
   color: #16336b;
@@ -496,6 +496,7 @@
   background: rgba(7, 20, 42, 0.62);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
+  overscroll-behavior: contain;
   animation: fade-in 220ms ease both;
 }
 
@@ -537,8 +538,8 @@
 .level-modal__close {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   flex: none;
   border-radius: 12px;
   border: 2px solid #dbe4f0;
@@ -571,6 +572,7 @@
   gap: 10px;
   padding: 10px 20px 20px 22px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   align-content: start;
 }
 
@@ -869,7 +871,7 @@
   }
 
   .btn-levels {
-    min-height: 40px;
+    min-height: 44px;
     padding: 7px 13px;
     font-size: 0.78rem;
   }
@@ -956,7 +958,8 @@
   }
 
   .level-modal {
-    padding: 12px;
+    padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+      max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
   }
 
   .level-modal__card {
@@ -977,6 +980,10 @@
   .level-modal__head {
     padding: 14px 14px 6px 16px;
   }
+}
+
+@media (max-width: 430px) {
+  .brand__sub { display: none; }
 }
 
 /* ---- very small phones: just typography, never clipping ---- */
@@ -1002,7 +1009,7 @@
 /* ---- short landscape viewports: compress rhythm, keep everything ---- */
 @media (max-height: 520px) and (min-width: 681px) {
   .hero__top {
-    padding-top: 8px;
+    padding-top: max(8px, env(safe-area-inset-top));
     padding-bottom: 4px;
   }
 
@@ -1040,7 +1047,7 @@
   }
 
   .mode-btn {
-    min-height: 36px;
+    min-height: 44px;
     padding: 0 16px;
   }
 }

@@ -13,10 +13,8 @@
       "indefinite"
     ],
     "recentQuestionWindow": 10,
-    "defaultQuestionCount": 8,
     "minimumQuestionsToPass": 5,
     "feedbackDelayMs": 850,
-    "wrongAnswerFeedbackDelayMs": 1800,
     "startingLivesArcade": 3,
     "maxAdaptiveWeight": 3.0,
     "masteryThreshold": 0.85,
@@ -514,13 +512,13 @@
       "levelMin": 2,
       "cefr": "A1",
       "rule": "definite-specific",
-      "sentence": "I liked ___ blue shirt in the shop window.",
+      "sentence": "The window displayed one blue shirt and two red shirts. I liked ___ blue shirt.",
       "answer": {
         "category": "definite",
         "article": "the"
       },
-      "explanation": "Use 'the' because the phrase 'in the shop window' points to one particular shirt that both people can see.",
-      "completedSentence": "I liked the blue shirt in the shop window."
+      "explanation": "Use 'the' because the first sentence makes the single blue shirt uniquely identifiable.",
+      "completedSentence": "The window displayed one blue shirt and two red shirts. I liked the blue shirt."
     },
     {
       "id": "q012",
@@ -540,13 +538,13 @@
       "levelMin": 2,
       "cefr": "A1",
       "rule": "definite-specific",
-      "sentence": "We had lunch at ___ restaurant we found near the station.",
+      "sentence": "The map showed two cafés and one restaurant near the station. We had lunch at ___ restaurant.",
       "answer": {
         "category": "definite",
         "article": "the"
       },
-      "explanation": "Use 'the' because the phrase 'we found near the station' identifies exactly which restaurant we mean.",
-      "completedSentence": "We had lunch at the restaurant we found near the station."
+      "explanation": "Use 'the' because the map context identifies the only restaurant near the station.",
+      "completedSentence": "The map showed two cafés and one restaurant near the station. We had lunch at the restaurant."
     },
     {
       "id": "q014",
