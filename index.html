@@ -168,17 +168,10 @@
            gates and collisions are owned by the engine + js/game.js;
            pointer input anywhere in this element selects a lane. -->
       <div id="runner" class="runner">
-        <!-- Far environment: CSS sky + meadow + distant hills (no image). -->
+        <!-- One device-specific countryside painting creates the seamless far
+             world. The interactive road, moving details, gates and player stay
+             independent HTML/CSS layers above it. -->
         <div class="scene" aria-hidden="true"></div>
-        <!-- Approved side scenery, framing the road (left = river / stone
-             bridge / waterfall, right = windmill / village / hay bales).
-             Purely static; each device class downloads ONLY its own WebP pair
-             (src chosen by js/game.js via SCENERY_ASSETS). Always UNDER the
-             road surface, so it can never cover the lanes, fox or gates. -->
-        <img id="scenery-left" class="scenery scenery-left" alt="" draggable="false"
-             decoding="async" aria-hidden="true">
-        <img id="scenery-right" class="scenery scenery-right" alt="" draggable="false"
-             decoding="async" aria-hidden="true">
         <!-- Fully code-built perspective road: a soft grass shoulder
              (blurred, wide) under a warm sand trapezoid. Both shapes are
              clip-path polygons drawn by js/game.js through the SAME
@@ -198,6 +191,11 @@
              gates by depth; the layer itself never creates a stacking
              context and never takes pointer events. -->
         <div id="road-layer" class="road-layer" aria-hidden="true"></div>
+        <div id="road-guides" class="road-guides" aria-hidden="true">
+          <span class="road-guide" data-lane="0"><i></i><i></i></span>
+          <span class="road-guide" data-lane="1"><i></i><i></i></span>
+          <span class="road-guide" data-lane="2"><i></i><i></i></span>
+        </div>
         <div id="gates" class="gates">
           <div class="answer-gate" data-lane="0" role="button" tabindex="-1" aria-label="Answer gate 1">
             <span class="gate-key" aria-hidden="true">1</span>
@@ -224,6 +222,14 @@
             <img id="player-img" class="player-img" alt="" draggable="false">
           </div>
         </div>
+        <div id="score-pop" class="score-pop" aria-hidden="true"></div>
+
+        <div class="world-sign world-sign--left" aria-hidden="true">
+          <span>Small Steps</span><span>Brighter English</span>
+        </div>
+        <div class="world-sign world-sign--right" aria-hidden="true">
+          <span>Better Words</span><span>A Brighter You</span>
+        </div>
       </div>
 
       <!-- HUD + question overlay: reads over the sky area of the scene -->
@@ -247,7 +253,12 @@
                 </defs>
                 <path fill="url(#hud-grad-star)" d="M12 2.6l2.7 5.6 6.1.8-4.5 4.2 1.2 6-5.5-3-5.5 3 1.2-6L3.2 9l6.1-.8z"></path>
               </svg>
-              <span id="hud-level" class="hud-pill__text">Level</span>
+              <span class="hud-pill__stack">
+                <span id="hud-level" class="hud-pill__text">Level</span>
+                <span class="hud-level__track" aria-hidden="true">
+                  <span id="hud-level-progress-fill" class="hud-level__fill"></span>
+                </span>
+              </span>
             </div>
 
             <div id="hud-progress" class="hud-pill hud-pill--progress">
@@ -255,9 +266,9 @@
                 <path fill="#3f7d3b" d="M6 2.8c.66 0 1.2.54 1.2 1.2v15.2a1.2 1.2 0 1 1-2.4 0V4c0-.66.54-1.2 1.2-1.2z"></path>
                 <path fill="#4caf50" d="M7.2 3.4h11.4l-2.9 3.9 2.9 3.9H7.2z"></path>
               </svg>
-              <span id="hud-question" class="hud-pill__text hud-pill__text--strong">– / –</span>
-              <span class="hud-progress__track" aria-hidden="true">
-                <span id="hud-progress-fill" class="hud-progress__fill"></span>
+              <span class="hud-pill__stack hud-pill__stack--progress">
+                <span id="hud-question" class="hud-pill__text hud-pill__text--strong">– / –</span>
+                <span id="hud-progress-segments" class="hud-progress__segments" aria-hidden="true"></span>
               </span>
             </div>
           </div>
@@ -288,6 +299,7 @@
                 </defs>
                 <path fill="url(#hud-grad-flame)" d="M13.3 1.9c.5 3.8-2.6 5.3-2.6 8.3 0 1.6 1.3 2.9 2.9 2.9s2.9-1.3 2.9-2.9c0-.6-.2-1.2-.5-1.7 1.5 1.2 2.4 3 2.4 5 0 3.6-3 6.6-6.6 6.6S5.2 17.1 5.2 13.5c0-5.8 6.8-7.1 8.1-11.6z"></path>
               </svg>
+              <span class="hud-streak__label">Streak</span>
               <span id="hud-streak" class="hud-pill__value">0</span>
             </div>
 
@@ -297,8 +309,47 @@
 
         <div class="sentence-wrap">
           <p id="sentence" class="sentence" aria-live="polite"></p>
+          <p class="sentence-instruction">Choose the correct article.</p>
         </div>
       </div>
+
+      <aside class="tip-card" aria-label="Grammar tip">
+        <span class="tip-card__icon" aria-hidden="true">
+          <svg viewBox="0 0 64 64" fill="none">
+            <path d="M37 11 18 25l9 12 20-14z" fill="#dff3ff" stroke="#2d79c7" stroke-width="4"/>
+            <path d="m24 33-9 17M31 37l2 18M20 39l17 9" stroke="#dff3ff" stroke-width="5" stroke-linecap="round"/>
+            <circle cx="44" cy="17" r="9" fill="#75c9ff" stroke="#164e9d" stroke-width="4"/>
+          </svg>
+        </span>
+        <span class="tip-card__copy"><strong>Tip:</strong><span id="tip-text">Read the whole sentence before choosing.</span></span>
+      </aside>
+
+      <aside class="owl-help" aria-label="Helpful hint">
+        <div class="owl-help__mascot" aria-hidden="true">
+          <svg viewBox="0 0 132 142" fill="none">
+            <ellipse cx="66" cy="132" rx="42" ry="8" fill="#754724" opacity=".25"/>
+            <path d="M29 61c0-31 16-46 37-46s37 15 37 46v35c0 22-16 35-37 35S29 118 29 96z" fill="#9a542f"/>
+            <path d="m31 63-17 24 23 9M101 63l17 24-23 9" fill="#7f4329"/>
+            <path d="M43 91c7 9 15 13 23 13s16-4 23-13v24c-7 10-15 15-23 15s-16-5-23-15z" fill="#f8e3c2"/>
+            <circle cx="49" cy="59" r="24" fill="#f5d9ae"/>
+            <circle cx="83" cy="59" r="24" fill="#f5d9ae"/>
+            <circle cx="49" cy="59" r="12" fill="#fff"/><circle cx="83" cy="59" r="12" fill="#fff"/>
+            <circle cx="51" cy="61" r="6" fill="#15234f"/><circle cx="81" cy="61" r="6" fill="#15234f"/>
+            <path d="m66 68-9 8 9 6 9-6z" fill="#f5a623"/>
+            <path d="M23 27h86L66 2z" fill="#24356f"/><path d="M38 28h57v12H38z" fill="#304b91"/>
+            <path d="M103 25v25" stroke="#f4b42f" stroke-width="3"/><circle cx="103" cy="52" r="4" fill="#f4b42f"/>
+          </svg>
+        </div>
+        <div class="owl-help__bubble">
+          <span class="owl-help__bulb" aria-hidden="true">💡</span>
+          <p id="hint-text">Look at what the noun means in this sentence.</p>
+        </div>
+      </aside>
+
+      <details class="mobile-hint">
+        <summary><span aria-hidden="true">💡</span> Hint</summary>
+        <p id="mobile-hint-text">Look at what the noun means in this sentence.</p>
+      </details>
 
       <p class="controls-hint">◀ ▶ / A D to switch lanes · gates answer on arrival</p>
 

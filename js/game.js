@@ -70,6 +70,25 @@ const CATEGORY_LABELS = {
   none: GATE_VISUALS.none.label,
 };
 
+/** Short, answer-safe prompts keyed by the engine's public grammar rule. */
+const RULE_HINTS = {
+  'indefinite-first-mention': 'Is this one new, nonspecific thing? Listen to its first sound too.',
+  'indefinite-jobs': 'A singular job normally needs an article. Listen to the job’s first sound.',
+  'definite-specific': 'Can the listener identify exactly which thing the sentence means?',
+  'definite-unique': 'Ask whether there is only one of this thing in the situation or the world.',
+  'definite-second-mention': 'Has this noun already been introduced earlier in the sentence or story?',
+  'zero-meals': 'Is the meal named as part of an ordinary routine?',
+  'zero-sports': 'Is the sentence talking about a sport in general?',
+  'zero-languages': 'Is this the name of a language used in a general way?',
+  'definite-superlative': 'Look for a superlative such as best, tallest, or most interesting.',
+  'definite-ordinal': 'Look for a numbered position such as first, second, or third.',
+  'definite-geography-water': 'Is this the name of a river, sea, ocean, or channel?',
+  'zero-general-plural': 'Does the plural noun mean the whole category rather than a known group?',
+  'zero-general-uncountable': 'Is the uncountable noun used generally rather than as a specific amount?',
+  'definite-instruments': 'Notice whether the noun names a musical instrument after play or practise.',
+  'zero-institutions-purpose': 'Does the place mean its normal purpose rather than a particular building?',
+};
+
 /**
  * Runner geometry — visual constants only. Ground lines (horizon/collision)
  * and lane x positions are owned by the CSS custom properties on .runner
@@ -145,38 +164,40 @@ const RUNNER_GEO = {
  */
 const WORLD_LAYOUTS = {
   desktop: {
-    farHalf: 0.036,
-    nearHalf: 0.45,
-    pEase: 1.75,
-    roadShoulder: 0.02,
-    sceneryW: 0.4,
-    sceneryMode: 'fit',
-    dashesPerLine: 10,
-    dashW0: 0.02,
-    dashAspect: 2.6,
-    stones: 14,
-    patches: 3,
-    tufts: 9,
+    farHalf: 0.078,
+    nearHalf: 0.51,
+    pEase: 1.48,
+    roadShoulder: 0.012,
+    gateStartDepth: 0.4,
+    farGateScale: 0.58,
+    nearGateScale: 0.88,
+    dashesPerLine: 8,
+    dashW0: 0.014,
+    dashAspect: 2.8,
+    stones: 10,
+    patches: 2,
+    tufts: 4,
     // road surface finishing (see ROAD_TEXTURE): edge-wear band width as a
     // share of the road's local half-width, 0 disables the band
-    wearW: 0.16,
-    grain: 0.5,
+    wearW: 0.08,
+    grain: 0.22,
   },
   tablet: {
-    farHalf: 0.032,
-    nearHalf: 0.42,
-    pEase: 1.75,
-    roadShoulder: 0.022,
-    sceneryW: 0.42,
-    sceneryMode: 'fit',
-    dashesPerLine: 10,
-    dashW0: 0.024,
-    dashAspect: 2.7,
-    stones: 12,
-    patches: 3,
-    tufts: 8,
-    wearW: 0.16,
-    grain: 0.5,
+    farHalf: 0.072,
+    nearHalf: 0.5,
+    pEase: 1.5,
+    roadShoulder: 0.014,
+    gateStartDepth: 0.48,
+    farGateScale: 0.58,
+    nearGateScale: 0.86,
+    dashesPerLine: 8,
+    dashW0: 0.018,
+    dashAspect: 2.8,
+    stones: 9,
+    patches: 2,
+    tufts: 3,
+    wearW: 0.08,
+    grain: 0.2,
   },
   mobile: {
     // Phone portrait is its own composition, not a shrunken desktop: the
@@ -184,54 +205,23 @@ const WORLD_LAYOUTS = {
     // wide enough for three readable gates, and the side artworks become
     // small cropped landmark strips that frame the road instead of
     // flanking it as two full-height posters.
-    farHalf: 0.095,
-    nearHalf: 0.44,
-    pEase: 1.55,
-    roadShoulder: 0.024,
-    sceneryW: 0.17,
-    sceneryH: 0.58,
-    sceneryMode: 'cover',
-    // Landmark-centered crops measured from the approved artwork:
-    // left = waterfall (center-right, upper) + stone bridge; right =
-    // windmill (center-left) + hay bale.
-    // crop anchors for the tall phone art (941×1672): left keeps the
-    // waterfall + stone bridge + river, right keeps windmill + hay + village
-    sceneryPos: { left: '50% 25%', right: '52% 35%' },
+    farHalf: 0.072,
+    nearHalf: 0.53,
+    pEase: 1.4,
+    roadShoulder: 0.012,
+    gateStartDepth: 0.68,
     // Reference: big readable boards for most of the approach, planted on
     // the lane at arrival — never tiny at spawn, never gigantic up close.
-    farGateScale: 0.52,
-    nearGateScale: 1.0,
-    dashesPerLine: 9,
-    dashW0: 0.036,
-    dashAspect: 3.0,
-    stones: 10,
-    patches: 2,
-    tufts: 6,
-    wearW: 0.14,
-    grain: 0.45,
-  },
-};
-
-/**
- * Approved side-scenery artwork per layout — one dedicated pair per device
- * class (sources preserved in assets/scenery/source/*.png; runtime is the
- * alpha-safe WebP re-encode). Only the ACTIVE layout's pair is ever given a
- * src, so a phone never downloads the desktop art and vice versa; swapping
- * the src on breakpoint change keeps the old bitmap on screen until the new
- * one decodes (no flash).
- */
-const SCENERY_ASSETS = {
-  desktop: {
-    left: 'assets/scenery/desktop-left.webp',
-    right: 'assets/scenery/desktop-right.webp',
-  },
-  tablet: {
-    left: 'assets/scenery/tablet-left.webp',
-    right: 'assets/scenery/tablet-right.webp',
-  },
-  mobile: {
-    left: 'assets/scenery/mobile-left.webp',
-    right: 'assets/scenery/mobile-right.webp',
+    farGateScale: 0.46,
+    nearGateScale: 0.76,
+    dashesPerLine: 7,
+    dashW0: 0.028,
+    dashAspect: 2.8,
+    stones: 8,
+    patches: 1,
+    tufts: 2,
+    wearW: 0.06,
+    grain: 0.16,
   },
 };
 
@@ -343,9 +333,10 @@ const dom = {
   // game screen
   screenGame: document.getElementById('screen-game'),
   hudLevel: document.getElementById('hud-level'),
+  hudLevelProgressFill: document.getElementById('hud-level-progress-fill'),
   hudQuestion: document.getElementById('hud-question'),
   hudProgress: document.getElementById('hud-progress'),
-  hudProgressFill: document.getElementById('hud-progress-fill'),
+  hudProgressSegments: document.getElementById('hud-progress-segments'),
   hudScore: document.getElementById('hud-score'),
   hudScorePill: document.getElementById('hud-score-pill'),
   hudStreak: document.getElementById('hud-streak'),
@@ -358,6 +349,10 @@ const dom = {
   gatesRoot: document.getElementById('gates'),
   player: document.getElementById('player'),
   playerImg: document.getElementById('player-img'),
+  scorePop: document.getElementById('score-pop'),
+  tipText: document.getElementById('tip-text'),
+  hintText: document.getElementById('hint-text'),
+  mobileHintText: document.getElementById('mobile-hint-text'),
   feedback: document.getElementById('feedback'),
   feedbackTitle: document.getElementById('feedback-title'),
   feedbackSentence: document.getElementById('feedback-sentence'),
@@ -399,6 +394,7 @@ const dom = {
 };
 
 const gateEls = [...dom.gatesRoot.querySelectorAll('.answer-gate')];
+const roadGuideEls = [...document.querySelectorAll('.road-guide')];
 
 /* ========================================================================
  * 2. Module state
@@ -686,11 +682,33 @@ function renderHUDHearts(lives, max) {
   });
 }
 
+function renderHUDSegments(current, total) {
+  const wrap = dom.hudProgressSegments;
+  if (!wrap) return;
+  if (wrap.children.length !== total) {
+    wrap.replaceChildren(
+      ...Array.from({ length: total }, () => {
+        const segment = document.createElement('span');
+        segment.className = 'hud-progress__segment';
+        return segment;
+      }),
+    );
+  }
+  [...wrap.children].forEach((segment, index) => {
+    segment.classList.toggle('is-complete', index < current);
+    segment.classList.toggle('is-current', index === Math.max(0, current - 1));
+  });
+}
+
 function renderHUD() {
   const snap = engine.getSnapshot();
   if (!snap.session) return;
 
-  dom.hudLevel.textContent = `${snap.level.title} · ${snap.level.cefr}`;
+  dom.hudLevel.textContent = `Level ${snap.level.id}`;
+  dom.hudLevel.parentElement?.parentElement?.setAttribute(
+    'title',
+    `${snap.level.title} · ${snap.level.cefr}`,
+  );
 
   const answeredIndex =
     snap.state === GAME_STATES.FEEDBACK && snap.lastResult
@@ -698,7 +716,9 @@ function renderHUD() {
       : snap.session.questionIndex + 1;
   dom.hudQuestion.textContent = `${answeredIndex} / ${snap.session.totalQuestions}`;
   dom.hudProgress.setAttribute('aria-label', `Question ${answeredIndex} of ${snap.session.totalQuestions}`);
-  dom.hudProgressFill.style.width = `${Math.round((answeredIndex / snap.session.totalQuestions) * 100)}%`;
+  const levelProgress = Math.round((answeredIndex / snap.session.totalQuestions) * 100);
+  if (dom.hudLevelProgressFill) dom.hudLevelProgressFill.style.width = `${levelProgress}%`;
+  renderHUDSegments(answeredIndex, snap.session.totalQuestions);
 
   dom.hudScore.textContent = `${snap.score}`;
   dom.hudScorePill.setAttribute('aria-label', `Score ${snap.score} points`);
@@ -738,7 +758,8 @@ function renderQuestion(payload) {
   // The road itself (dashes/stones/tufts) never resets — it just keeps
   // flowing, so the next question reads as a new stretch of the same
   // endless road.
-  world.gate.depth = 0;
+  const activeLayout = WORLD_LAYOUTS[sceneGeo.layout] ?? WORLD_LAYOUTS.desktop;
+  world.gate.depth = activeLayout.gateStartDepth ?? 0.4;
   world.gate.spawnFade = 0;
   world.feedbackT = 0;
   world.crawl = 1;
@@ -758,6 +779,17 @@ function renderQuestion(payload) {
   blank.className = 'blank';
   blank.textContent = '_______';
   dom.sentence.append(blank, document.createTextNode(after));
+
+  const rule = gameData.ruleCatalog.find((item) => item.id === payload.question.rule);
+  const tip = rule?.summary ?? 'Read the whole sentence before choosing an article.';
+  const hint = RULE_HINTS[payload.question.rule] ?? 'Look at what the noun means in this sentence.';
+  if (dom.tipText) dom.tipText.textContent = tip;
+  if (dom.hintText) dom.hintText.textContent = hint;
+  if (dom.mobileHintText) dom.mobileHintText.textContent = hint;
+  if (dom.scorePop) {
+    dom.scorePop.textContent = '';
+    dom.scorePop.classList.remove('is-visible');
+  }
 
   renderLanes(payload.laneMap);
   renderPlayer(payload.playerLane);
@@ -786,13 +818,30 @@ function renderLanes(laneMap) {
       gate.querySelector('.answer-gate__label').textContent = visuals.label;
       gate.setAttribute('aria-label', `${visuals.aria} (key ${lane + 1})`);
     }
+    const guide = roadGuideEls[lane];
+    if (guide) guide.dataset.category = category;
     gate.classList.remove('is-chosen', 'is-correct', 'is-wrong');
   });
+  renderLaneGuides();
 }
 
 function renderPlayer(lane) {
   dom.player.style.left = PLAYER_LANE_POSITIONS[lane];
+  roadGuideEls.forEach((guide, index) => guide.classList.toggle('is-active', index === lane));
   setSceneParallax(lane);
+}
+
+function renderLaneGuides() {
+  if (world.W < 40 || roadGuideEls.length === 0) return;
+  const depth = sceneGeo.layout === 'mobile' ? 0.76 : sceneGeo.layout === 'tablet' ? 0.64 : 0.58;
+  roadGuideEls.forEach((guide, lane) => {
+    const laneU = lane === 1 ? 0 : lane === 0 ? -1 : 1;
+    const p = projectRoadPoint(depth, laneU);
+    const scale = Math.max(0.46, Math.min(0.82, p.scale * 1.45));
+    guide.style.transform =
+      `translate3d(${(p.x * world.W).toFixed(1)}px, ${(p.y * world.H).toFixed(1)}px, 0) ` +
+      `translate(-50%, -50%) scale(${scale.toFixed(3)})`;
+  });
 }
 
 /**
@@ -1006,10 +1055,8 @@ function buildRoadWorld() {
  */
 function rebuildWorldGeometry() {
   // Re-read the CSS scene variables first: a resize may have crossed a
-  // breakpoint while the game screen was hidden (no live runner rect), and
-  // the scenery pair must follow the CURRENT layout either way.
+  // breakpoint while the game screen was hidden (no live runner rect).
   readSceneGeo();
-  applySceneryAssets(sceneGeo.layout);
   const layout = WORLD_LAYOUTS[sceneGeo.layout] ?? WORLD_LAYOUTS.desktop;
   const rect = dom.runner.getBoundingClientRect();
   if (rect.width < 40 || rect.height < 40) return; // hidden screen — try again when shown
@@ -1037,7 +1084,6 @@ function rebuildWorldGeometry() {
   world.divAngle = [-angle, angle];
 
   drawCodedRoad(layout);
-  placeScenery(layout);
 
   // Activate exactly this layout's detail counts (WORLD_LAYOUTS): dashes
   // keep perfectly even spacing per line; surplus pool nodes hide.
@@ -1093,6 +1139,7 @@ function rebuildWorldGeometry() {
   });
 
   renderWorldStatic();
+  renderLaneGuides();
 }
 
 /**
@@ -1176,53 +1223,6 @@ function drawCodedRoad(layout) {
         `polygon(${left.join(', ')}, ${right.reverse().join(', ')})`
       );
     });
-  }
-}
-
-/**
- * Point the two scenery <img> tags at the active layout's pair (see
- * SCENERY_ASSETS). Idempotent: nothing happens while the layout key is
- * unchanged, so resizes within one breakpoint never touch the network.
- */
-function applySceneryAssets(layoutKey) {
-  const pair = SCENERY_ASSETS[layoutKey] ?? SCENERY_ASSETS.desktop;
-  for (const side of ['left', 'right']) {
-    const el = document.getElementById(`scenery-${side}`);
-    if (el && el.dataset.layout !== layoutKey) {
-      el.dataset.layout = layoutKey;
-      el.src = pair[side];
-    }
-  }
-}
-
-/**
- * Size + position the two scenery pieces for the active layout. They are
- * always UNDER the coded road (DOM order), so whatever the crop, they can
- * only ever frame the road, never cover a lane.
- */
-function placeScenery(layout) {
-  const sides = {
-    left: document.getElementById('scenery-left'),
-    right: document.getElementById('scenery-right'),
-  };
-  for (const [side, el] of Object.entries(sides)) {
-    if (!el) continue;
-    if (layout.sceneryMode === 'cover') {
-      // phones: a short, aggressively cropped landmark strip in the upper
-      // corner (CSS feathers it into the sky/road). It frames the road —
-      // the road itself owns nearly the full width at the bottom.
-      el.style.width = `${layout.sceneryW * 100}%`;
-      el.style.height = `${(layout.sceneryH ?? 1) * 100}%`;
-      el.style.objectFit = 'cover';
-      el.style.objectPosition = layout.sceneryPos?.[side] ?? 'center';
-    } else {
-      // desktop/tablet: full artwork, aspect preserved, anchored to the
-      // bottom edge so its meadow meets the runner's ground
-      el.style.width = `${layout.sceneryW * 100}%`;
-      el.style.height = 'auto';
-      el.style.objectFit = '';
-      el.style.objectPosition = '';
-    }
   }
 }
 
@@ -1378,7 +1378,9 @@ function updateWorldMotion(dt, rate, playerAnimFactor) {
 function updateGateVisual(dt, state) {
   const g = world.gate;
   if (state === GAME_STATES.PLAYING) {
-    g.depth = gateVisualProgress;
+    const layout = WORLD_LAYOUTS[sceneGeo.layout] ?? WORLD_LAYOUTS.desktop;
+    const start = layout.gateStartDepth ?? 0.4;
+    g.depth = start + (1 - start) * gateVisualProgress;
     g.spawnFade = Math.min(1, g.spawnFade + dt * 3);
   } else if (state === GAME_STATES.FEEDBACK) {
     world.feedbackT += dt;
@@ -1448,6 +1450,8 @@ function renderGates() {
 function hideFeedback() {
   dom.feedback.classList.add('hidden');
   dom.feedback.classList.remove('feedback-correct', 'feedback-wrong');
+  dom.screenGame.classList.remove('is-feedback');
+  if (dom.scorePop) dom.scorePop.classList.remove('is-visible');
 }
 
 function renderFeedback(result) {
@@ -1469,6 +1473,7 @@ function renderFeedback(result) {
 
   dom.feedback.classList.remove('hidden', 'feedback-correct', 'feedback-wrong');
   dom.feedback.classList.add(result.isCorrect ? 'feedback-correct' : 'feedback-wrong');
+  dom.screenGame.classList.add('is-feedback');
   dom.feedbackTitle.textContent = result.isCorrect ? 'Correct!' : 'Not quite';
 
   // Completed sentence with the filled article emphasized (when there is one).
@@ -1496,7 +1501,12 @@ function renderFeedback(result) {
 
   if (result.isCorrect) {
     dom.feedbackDetail.textContent = `+${result.pointsGained} points · streak ${result.streak} · ${result.ruleLabel}`;
+    if (dom.scorePop) {
+      dom.scorePop.textContent = `+${result.pointsGained}`;
+      retriggerAnimation(dom.scorePop, 'is-visible');
+    }
   } else {
+    if (dom.scorePop) dom.scorePop.classList.remove('is-visible');
     const article = result.correctArticle ? `"${result.correctArticle}"` : 'no article';
     dom.feedbackDetail.textContent =
       `Correct answer: ${article} (${CATEGORY_LABELS[result.correctCategory] ?? result.correctCategory}). ` +
@@ -1767,7 +1777,6 @@ function bindUiEvents() {
   // -- responsive geometry: lanes, horizon + label metrics follow the scene
   //    breakpoints in CSS (680px / 1100px); rotation/resize re-reads them --
   readSceneGeo();
-  applySceneryAssets(sceneGeo.layout); // start preloading THIS device's pair now
   buildRoadWorld(); // pooled road objects exist before the first level
   rebuildWorldGeometry(); // no-op while the game screen is hidden
   gateLabelBaseStale = true; // re-measured on the next visible frame
@@ -1776,8 +1785,7 @@ function bindUiEvents() {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
       readSceneGeo();
-      applySceneryAssets(sceneGeo.layout); // breakpoint crossed → swap the pair
-      rebuildWorldGeometry(); // road polygons, scenery + pooled sizes follow the new layout
+      rebuildWorldGeometry(); // road polygons + pooled sizes follow the new layout
       gateLabelBaseStale = true;
     }, 120);
   });
