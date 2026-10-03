@@ -30,6 +30,8 @@ body {
   padding: 0;
 }
 
+html { overflow: hidden; }
+
 body {
   overflow: hidden;
   color: #1f2933;
@@ -153,30 +155,41 @@ body {
   position: absolute;
   inset: 0;
   overflow: hidden;
+  contain: layout paint size;
   container-type: size;
-  --scene-layout: desktop;
+  /* Safe first-paint fallbacks; gameplay replaces projected geometry. */
   --scene-horizon-y: 42.5%;
   --scene-collision-y: 82%;
   --player-bottom: 11.5%;
   --lane-x-0: 21%;
   --lane-x-1: 50%;
   --lane-x-2: 79%;
+  --lane-marker-width: 10px;
+  --lane-marker-height: 78px;
+  --road-texture-offset-px: 0px;
 }
 
 .scene {
   position: absolute;
-  inset: -0.6%;
+  inset: 0;
   z-index: 0;
+  overflow: hidden;
+  contain: paint;
   pointer-events: none;
   background-color: #54b6ee;
   background-image: url("../assets/backgrounds/road-desktop.webp");
   background-repeat: no-repeat;
   background-position: center center;
   background-size: cover;
-  transform: translateX(var(--scene-parallax-x, 0px)) scale(1.006);
-  transform-origin: center;
-  transition: transform 260ms ease-out;
-  will-change: transform;
+}
+
+/* JS selects the same three projection layouts used by the road geometry. */
+.runner[data-road-layout="tablet"] .scene {
+  background-image: url("../assets/backgrounds/road-tablet.webp");
+}
+
+.runner[data-road-layout="mobile"] .scene {
+  background-image: url("../assets/backgrounds/road-mobile-clean-v2.webp");
 }
 
 .scene::after {
@@ -193,45 +206,123 @@ body {
 .road-tracks {
   position: absolute;
   inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  contain: paint;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--scene-horizon-y) - 0.5%),
+    #000 calc(var(--scene-horizon-y) + 5.5%)
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--scene-horizon-y) - 0.5%),
+    #000 calc(var(--scene-horizon-y) + 5.5%)
+  );
   pointer-events: none;
 }
 
-/* The paintings supply rich road texture; the translucent projected surface
-   unifies them with the moving marker/stone layer without flattening the art. */
-.road-edge,
-.road-tuft {
-  display: none !important;
+/* A soft grass, packed-earth and pale-stone rim joins road to countryside. */
+.road-edge {
+  background:
+    linear-gradient(
+      90deg,
+      rgba(74, 101, 43, 0.78) 0%,
+      rgba(137, 119, 52, 0.76) 9%,
+      rgba(224, 177, 94, 0.82) 21%,
+      rgba(242, 211, 151, 0.74) 30%,
+      rgba(242, 211, 151, 0.74) 70%,
+      rgba(224, 177, 94, 0.82) 79%,
+      rgba(137, 119, 52, 0.76) 91%,
+      rgba(74, 101, 43, 0.78) 100%
+    );
 }
-
-.road-edge { z-index: 1; }
 
 .road-edge::before {
   content: "";
   position: absolute;
   inset: 0;
-  background: rgba(96, 157, 57, 0.42);
-  filter: blur(7px);
+  background:
+    linear-gradient(
+      90deg,
+      rgba(58, 83, 35, 0.35),
+      rgba(255, 231, 177, 0.3) 22%,
+      transparent 33%,
+      transparent 67%,
+      rgba(255, 231, 177, 0.3) 78%,
+      rgba(58, 83, 35, 0.35)
+    );
+  filter: blur(2px);
+}
+
+.road-edge::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle, rgba(91, 61, 30, 0.3) 0 0.75px, transparent 1.15px),
+    radial-gradient(circle, rgba(255, 231, 177, 0.32) 0 0.65px, transparent 1px);
+  background-position: 3px 5px, 14px 17px;
+  background-size: 23px 29px, 37px 41px;
+  opacity: 0.48;
 }
 
 .road-surface {
-  z-index: 1;
+  isolation: isolate;
   background:
-    linear-gradient(90deg, rgba(125, 79, 34, 0.12), transparent 12%, transparent 88%, rgba(125, 79, 34, 0.12)),
-    linear-gradient(to bottom, rgba(250, 211, 139, 0.46), rgba(245, 188, 99, 0.5) 56%, rgba(236, 167, 79, 0.54));
+    radial-gradient(
+      ellipse at 50% 88%,
+      rgba(255, 226, 151, 0.22) 0 17%,
+      rgba(255, 219, 135, 0.08) 36%,
+      transparent 58%
+    ),
+    linear-gradient(
+      90deg,
+      rgba(108, 61, 26, 0.3) 0%,
+      rgba(168, 101, 39, 0.13) 13%,
+      transparent 31%,
+      rgba(255, 231, 169, 0.13) 46%,
+      rgba(255, 231, 169, 0.13) 54%,
+      transparent 69%,
+      rgba(168, 101, 39, 0.13) 87%,
+      rgba(108, 61, 26, 0.3) 100%
+    ),
+    linear-gradient(180deg, #e7ca8b 0%, #e9b862 46%, #e4a24d 78%, #da9142 100%);
 }
 
+.road-surface::before,
 .road-surface::after {
   content: "";
   position: absolute;
   inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='170' height='170'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.75' numOctaves='2' seed='7'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='170' height='170' filter='url(%23n)' opacity='.34'/%3E%3C/svg%3E");
-  background-size: 170px 170px;
-  opacity: var(--road-grain-o, 0.2);
-  mix-blend-mode: soft-light;
+  pointer-events: none;
 }
 
-.road-shading,
-.road-tracks { z-index: 1; }
+.road-surface::before {
+  background-image:
+    radial-gradient(circle, rgba(93, 53, 23, 0.34) 0 0.7px, transparent 1.1px),
+    radial-gradient(circle, rgba(255, 237, 190, 0.36) 0 0.75px, transparent 1.1px),
+    radial-gradient(circle, rgba(126, 72, 27, 0.25) 0 0.6px, transparent 1px),
+    radial-gradient(ellipse, rgba(88, 51, 24, 0.2) 0 1.25px, transparent 1.75px);
+  background-position:
+    0 var(--road-texture-offset-px, 0px),
+    11px calc(var(--road-texture-offset-px, 0px) + 13px),
+    23px calc(var(--road-texture-offset-px, 0px) - 9px),
+    41px calc(var(--road-texture-offset-px, 0px) + 31px);
+  background-size: 19px 23px, 31px 37px, 43px 47px, 79px 97px;
+  opacity: 0.68;
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.18), #000 48%, #000);
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.18), #000 48%, #000);
+  will-change: background-position;
+}
+
+.road-surface::after {
+  background:
+    radial-gradient(ellipse at 18% 63%, rgba(105, 62, 26, 0.08) 0 6%, transparent 25%),
+    radial-gradient(ellipse at 82% 46%, rgba(116, 70, 29, 0.065) 0 7%, transparent 27%),
+    radial-gradient(ellipse at 51% 78%, rgba(255, 228, 164, 0.09) 0 9%, transparent 32%);
+  opacity: var(--road-grain-o, 0.14);
+}
 
 .road-shading i,
 .road-tracks i {
@@ -242,16 +333,16 @@ body {
 }
 
 .road-shading i {
-  background: rgba(119, 75, 34, var(--wear-alpha, 0.1));
-  filter: blur(6px);
+  background: rgba(104, 62, 27, var(--wear-alpha, 0.1));
+  filter: blur(5px);
 }
 
 .road-shading i:first-child { clip-path: var(--wear-clip-l, none); }
 .road-shading i:last-child { clip-path: var(--wear-clip-r, none); }
 
 .road-tracks i {
-  background: rgba(91, 61, 28, 0.045);
-  filter: blur(5px);
+  background: rgba(105, 64, 27, 0.075);
+  filter: blur(7px);
 }
 
 .road-tracks i:nth-child(1) { clip-path: var(--track-clip-0, none); }
@@ -261,65 +352,205 @@ body {
 .road-layer {
   position: absolute;
   inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  contain: paint;
   pointer-events: none;
 }
 
-.road-layer > * {
+.road-layer > *,
+.road-detail {
   position: absolute;
   top: 0;
   left: 0;
-  will-change: transform;
+  contain: layout style;
+  transform-origin: center;
+  will-change: transform, opacity;
 }
 
-.road-dash {
-  border-radius: 42%;
-  background: linear-gradient(#fff9e9, #f5dfad);
-  box-shadow: 0 1px 2px rgba(135, 89, 38, 0.16);
+.road-detail { z-index: 2; }
+
+.lane-marker {
+  width: var(--lane-marker-width);
+  height: var(--lane-marker-height);
+  overflow: hidden;
+  border-radius: 18% 20% 16% 18%;
+  background:
+    radial-gradient(circle at 32% 68%, rgba(143, 88, 33, 0.17) 0 4%, transparent 5.5%),
+    linear-gradient(90deg, rgba(126, 78, 30, 0.1), transparent 24% 76%, rgba(126, 78, 30, 0.1)),
+    linear-gradient(180deg, #fff2bd 0%, #f8dda0 54%, #efc878 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 251, 226, 0.28),
+    0 1px 1px rgba(91, 56, 23, 0.22);
+}
+
+.lane-marker::after {
+  content: "";
+  position: absolute;
+  inset: 8% 13%;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 78% 24%, rgba(132, 80, 29, 0.2) 0 2%, transparent 3.5%),
+    radial-gradient(circle at 28% 82%, rgba(255, 249, 215, 0.22) 0 2.5%, transparent 4%);
 }
 
 .road-stone {
   border-radius: 48% 54% 46% 52%;
-  filter: drop-shadow(0 1px 1.5px rgba(91, 64, 31, 0.25));
+  box-shadow: 0 1px 1.5px rgba(84, 54, 26, 0.28), inset 0 1px rgba(255, 236, 191, 0.24);
 }
 
-.stone-a { background: radial-gradient(circle at 35% 28%, #c5b297, #93816d 72%); }
-.stone-b { background: radial-gradient(circle at 35% 28%, #b8a78f, #897763 72%); }
-.stone-c { background: radial-gradient(circle at 35% 28%, #cbbba4, #9a8972 72%); }
-.stone-d { background: radial-gradient(circle at 35% 28%, #b0a48f, #807563 72%); filter: none; }
-
-.road-patch { border-radius: 50%; filter: blur(1px); }
-.patch-a { background: radial-gradient(ellipse, rgba(112, 77, 37, 0.24), transparent 72%); }
-.patch-b { background: radial-gradient(ellipse, rgba(255, 235, 195, 0.28), transparent 72%); }
-
-.road-tuft {
-  border-radius: 50%;
-  background:
-    radial-gradient(60% 65% at 32% 76%, #69a743 0 42%, transparent 72%),
-    radial-gradient(60% 65% at 70% 73%, #82bc50 0 42%, transparent 72%);
-}
-
-.tuft-flower::after {
+.road-stone::before,
+.road-stone::after {
   content: "";
   position: absolute;
-  top: 20%;
-  left: 58%;
-  width: 34%;
-  aspect-ratio: 1;
-  border-radius: 50%;
-  background: #ffe17c;
+  border-radius: 50% 44% 54% 46%;
+  background: #8c6743;
+  box-shadow: 0 1px 1px rgba(72, 45, 22, 0.22);
+  opacity: 0.72;
 }
 
-.tuft-flower.flower-b::after { left: 34%; background: #ffd6e8; }
+.road-stone::before { width: 34%; height: 31%; left: -44%; top: 55%; }
+.road-stone::after { width: 22%; height: 20%; right: -36%; top: 18%; }
+
+.stone-a { background: radial-gradient(circle at 35% 28%, #d8bd91, #94714f 72%); }
+.stone-b { background: radial-gradient(circle at 35% 28%, #c6aa82, #846548 72%); }
+.stone-c { background: radial-gradient(circle at 35% 28%, #e0c79f, #9d7650 72%); }
+.stone-d { background: radial-gradient(circle at 35% 28%, #b7a17e, #776047 72%); }
 
 .dust-puff {
   border-radius: 50%;
   background: radial-gradient(circle, rgba(230, 199, 144, 0.48), transparent 70%);
 }
 
+/* ==========================================================================
+ * Collectible coins — sparse road bonus + compact collection feedback
+ * ========================================================================== */
+
+.road-coin {
+  width: 68px;
+  aspect-ratio: 1;
+  opacity: 0;
+  transform-origin: 50% 100%;
+  perspective: 320px;
+  pointer-events: none;
+}
+
+.road-coin__image,
+.coin--collecting {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.road-coin__image {
+  transform-style: preserve-3d;
+  filter: drop-shadow(0 3px 3px rgba(127, 72, 7, 0.3));
+  animation: coin-idle 2400ms ease-in-out infinite;
+}
+
+@keyframes coin-idle {
+  0% { transform: translateY(0) rotateY(-8deg) rotateZ(-1deg); }
+  50% { transform: translateY(-3px) rotateY(172deg) rotateZ(1deg); }
+  100% { transform: translateY(0) rotateY(352deg) rotateZ(-1deg); }
+}
+
+.coin-burst {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 9;
+  width: 0;
+  height: 0;
+  transform: translate3d(var(--coin-burst-x), var(--coin-burst-y), 0);
+  pointer-events: none;
+}
+
+.coin-spark {
+  position: absolute;
+  top: -3px;
+  left: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff4a8;
+  box-shadow: 0 0 4px rgba(255, 187, 31, 0.72);
+  animation: coin-spark 430ms ease-out forwards;
+}
+
+.coin-spark:nth-child(even) { background: #ffc928; }
+
+@keyframes coin-spark {
+  0% { opacity: 0.95; transform: translate3d(0, 0, 0) scale(0.65); }
+  70% { opacity: 0.82; }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--spark-x), var(--spark-y), 0) scale(0.15);
+  }
+}
+
+.coin--collecting {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 150;
+  width: var(--coin-flight-size);
+  height: var(--coin-flight-size);
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform, opacity;
+  filter: drop-shadow(0 4px 5px rgba(127, 72, 7, 0.3));
+  animation: coin-to-hud var(--coin-flight-duration, 500ms)
+    cubic-bezier(0.2, 0.76, 0.24, 1) forwards;
+}
+
+@keyframes coin-to-hud {
+  0% {
+    opacity: 1;
+    transform: translate3d(var(--coin-from-x), var(--coin-from-y), 0)
+      translate(-50%, -50%) scale(1);
+  }
+  18% {
+    opacity: 1;
+    transform: translate3d(var(--coin-from-x), var(--coin-from-y), 0)
+      translate(-50%, -50%) scale(1.14);
+  }
+  52% {
+    opacity: 0.96;
+    transform: translate3d(var(--coin-mid-x), var(--coin-mid-y), 0)
+      translate(-50%, -50%) scale(0.78);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--coin-to-x), var(--coin-to-y), 0)
+      translate(-50%, -50%) scale(0.28);
+  }
+}
+
+.hud-pill--score.hud-coin--pulse {
+  animation: hud-coin-pulse 420ms ease-out;
+}
+
+@keyframes hud-coin-pulse {
+  42% {
+    transform: scale(1.08);
+    filter: brightness(1.1) drop-shadow(0 0 7px rgba(255, 205, 55, 0.48));
+  }
+}
+
+.screen-game.is-coin-paused .road-coin__image,
+.screen-game.is-coin-paused .coin-spark,
+.screen-game.is-coin-paused .coin--collecting,
+.screen-game.is-coin-paused .hud-coin--pulse {
+  animation-play-state: paused;
+}
+
 .road-guides {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  z-index: 3;
   pointer-events: none;
 }
 
@@ -365,6 +596,7 @@ body {
 .gates {
   position: absolute;
   inset: 0;
+  z-index: 4;
   --gate-w: 17cqw;
   --gate-h-cap: 35cqh;
 }
@@ -373,7 +605,7 @@ body {
   position: absolute;
   top: 0;
   left: 0;
-  width: min(var(--gate-road-w, var(--gate-w)), var(--gate-h-cap));
+  width: var(--gate-road-w, min(var(--gate-w), calc(var(--gate-h-cap) * 1.032258)));
   aspect-ratio: 960 / 930;
   opacity: 0;
   cursor: pointer;
@@ -841,6 +1073,118 @@ body.debug .answer-gate .gate-key {
   font: 800 clamp(0.95rem, 1.35vw, 1.22rem)/1.1 var(--font-game);
 }
 
+/* Screen-space lane controls: the order is populated from the engine laneMap. */
+.answer-dock {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  z-index: 90;
+  width: min(46vw, 760px);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(8px, 0.7vw, 12px);
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+
+.answer-dock__choice {
+  min-width: 0;
+  min-height: 74px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin: 0;
+  padding: 10px 12px 9px;
+  appearance: none;
+  border: 1px solid rgba(126, 157, 188, 0.72);
+  border-radius: 17px;
+  background: linear-gradient(180deg, #173b5c 0%, #0c2744 48%, #07182f 100%);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.18), 0 9px 18px rgba(3, 14, 34, 0.34);
+  color: #f8fbff;
+  cursor: pointer;
+  font-family: var(--font-game);
+  text-align: center;
+  touch-action: manipulation;
+  transition: transform 130ms ease, border-color 150ms ease, background 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.answer-dock__choice:hover:not(:disabled) {
+  border-color: rgba(169, 224, 255, 0.92);
+  background: linear-gradient(180deg, #1c496e 0%, #103254 50%, #091d38 100%);
+}
+
+.answer-dock__choice:active:not(:disabled) { transform: translateY(1px); }
+.answer-dock__choice:disabled { cursor: default; }
+.answer-dock__choice:focus-visible { outline-width: 3px; outline-offset: 2px; }
+
+.answer-dock__label,
+.answer-dock__sublabel {
+  max-width: 100%;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.answer-dock__label {
+  color: #fff;
+  font-size: clamp(0.82rem, 1.35vw, 1.15rem);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  text-shadow: 0 2px 1px rgba(1, 13, 31, 0.55);
+}
+
+.answer-dock__sublabel {
+  color: #94acc3;
+  font-size: clamp(0.52rem, 0.68vw, 0.68rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.08em;
+}
+
+.answer-dock__choice.is-selected {
+  border-color: #54e1ff;
+  background: linear-gradient(180deg, #17618a 0%, #0c466d 48%, #082c50 100%);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.26), 0 0 0 2px rgba(84, 225, 255, 0.3),
+    0 0 22px rgba(47, 210, 255, 0.45), 0 10px 20px rgba(3, 14, 34, 0.42);
+  transform: translateY(-1px) scale(1.01);
+}
+
+.answer-dock__choice.is-selected .answer-dock__sublabel { color: #c6f6ff; }
+
+.answer-dock__choice.is-correct {
+  border-color: #7ef7d6;
+  background: linear-gradient(180deg, #17876f 0%, #0e665c 48%, #084541 100%);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.25), 0 0 0 2px rgba(80, 238, 194, 0.25),
+    0 0 23px rgba(45, 225, 185, 0.4), 0 10px 20px rgba(3, 14, 34, 0.4);
+  animation: answer-dock-success 460ms ease both;
+}
+
+.answer-dock__choice.is-correct .answer-dock__sublabel { color: #c9fff0; }
+
+.answer-dock__choice.is-wrong {
+  border-color: #f59a73;
+  background: linear-gradient(180deg, #8c3d42 0%, #6e2e38 50%, #4b202d 100%);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.18), 0 0 0 2px rgba(235, 112, 74, 0.2),
+    0 8px 18px rgba(45, 9, 18, 0.36);
+}
+
+.answer-dock__choice.is-wrong .answer-dock__sublabel { color: #ffd3c2; }
+
+@keyframes answer-dock-success {
+  50% { transform: translateY(-1px) scale(1.018); }
+}
+
+.answer-dock:not(.hidden) ~ .controls-hint { display: none; }
+.screen-game.is-feedback .feedback {
+  bottom: max(104px, calc(env(safe-area-inset-bottom) + 104px));
+}
+
 /* ========================================================================== 
  * In-world supporting UI
  * ========================================================================== */
@@ -1151,16 +1495,10 @@ body.debug .answer-gate .gate-key {
 
 @media (max-width: 1100px) {
   .runner {
-    --scene-layout: tablet;
-    --scene-horizon-y: 44%;
-    --scene-collision-y: 82.5%;
     --player-bottom: 11%;
-    --lane-x-0: 21%;
-    --lane-x-1: 50%;
-    --lane-x-2: 79%;
+    --lane-marker-width: 9px;
+    --lane-marker-height: 72px;
   }
-
-  .scene { background-image: url("../assets/backgrounds/road-tablet.webp"); }
 
   .game-top { gap: 9px; padding-top: max(10px, env(safe-area-inset-top)); }
 
@@ -1177,6 +1515,14 @@ body.debug .answer-gate .gate-key {
   }
 
   .sentence { font-size: clamp(1.45rem, 3vw, 2rem); }
+
+  .answer-dock {
+    width: min(68vw, 680px);
+    gap: 10px;
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+
+  .answer-dock__choice { min-height: 68px; }
 
   .gates { --gate-w: 23cqw; --gate-h-cap: 34cqh; }
 
@@ -1209,11 +1555,8 @@ body.debug .answer-gate .gate-key {
 
 @media (max-width: 900px) and (orientation: portrait) {
   .scene {
-    background-image: url("../assets/backgrounds/road-mobile.webp");
     background-position: center center;
   }
-
-  .runner { --scene-horizon-y: 42%; }
 
   .hud { justify-content: center; }
 }
@@ -1226,24 +1569,13 @@ body.debug .answer-gate .gate-key {
   .app { min-height: 0; }
 
   .runner {
-    --scene-layout: mobile;
-    --scene-horizon-y: 28%;
-    --scene-collision-y: 84%;
     --player-bottom: 10%;
-    --lane-x-0: 21%;
-    --lane-x-1: 50%;
-    --lane-x-2: 79%;
+    --lane-marker-width: 7px;
+    --lane-marker-height: 62px;
   }
 
   .scene {
-    background-image: url("../assets/backgrounds/road-mobile-clean-v2.webp");
     background-position: center center;
-  }
-
-  .road-surface {
-    background:
-      linear-gradient(90deg, rgba(125, 79, 34, 0.16), transparent 13%, transparent 87%, rgba(125, 79, 34, 0.16)),
-      linear-gradient(to bottom, rgba(250, 211, 139, 0.58), rgba(245, 188, 99, 0.62) 56%, rgba(236, 167, 79, 0.66));
   }
 
   .game-top {
@@ -1334,6 +1666,32 @@ body.debug .answer-gate .gate-key {
   .sentence .blank { border-bottom-width: 3px; }
   .sentence-instruction { font-size: 0.78rem; }
 
+  .answer-dock {
+    right: auto;
+    bottom: 0;
+    left: 6px;
+    width: calc(100% - 12px);
+    gap: 5px;
+    padding-right: max(0px, calc(env(safe-area-inset-right) - 6px));
+    padding-bottom: max(6px, env(safe-area-inset-bottom));
+    padding-left: max(0px, calc(env(safe-area-inset-left) - 6px));
+    transform: none;
+  }
+
+  .answer-dock__choice {
+    min-width: 0;
+    min-height: 60px;
+    gap: 4px;
+    padding: 7px 4px 6px;
+    border-radius: 13px;
+  }
+
+  .answer-dock__label { font-size: clamp(0.74rem, 3.5vw, 0.96rem); }
+  .answer-dock__sublabel {
+    font-size: clamp(0.48rem, 2vw, 0.58rem);
+    letter-spacing: 0.045em;
+  }
+
   .gates { --gate-w: 27cqw; --gate-h-cap: 21cqh; }
   .answer-gate__label { font-size: clamp(9px, 11cqw, 32px); }
   .answer-gate[data-category="none"] .answer-gate__label { font-size: clamp(8px, 9.5cqw, 29px); }
@@ -1357,6 +1715,10 @@ body.debug .answer-gate .gate-key {
     display: block;
     color: var(--navy-900);
     font-family: var(--font-game);
+  }
+
+  .answer-dock:not(.hidden) ~ .mobile-hint {
+    bottom: max(74px, calc(env(safe-area-inset-bottom) + 74px));
   }
 
   .mobile-hint summary {
@@ -1434,6 +1796,10 @@ body.debug .answer-gate .gate-key {
   .sentence-wrap { min-height: 84px; }
   .sentence { font-size: 1.05rem; }
   .sentence-instruction { font-size: 0.7rem; }
+  .answer-dock { gap: 4px; }
+  .answer-dock__choice { min-height: 56px; padding-inline: 3px; }
+  .answer-dock__label { font-size: 0.78rem; }
+  .answer-dock__sublabel { font-size: 0.46rem; letter-spacing: 0.025em; }
   .gates { --gate-w: 27cqw; }
   .player { width: min(136px, 30cqh); }
 }
@@ -1444,6 +1810,7 @@ body.debug .answer-gate .gate-key {
   .sentence-wrap { min-height: 86px; padding: 10px 26px; border-radius: 26px; }
   .sentence { font-size: clamp(1.35rem, 2.4vw, 1.85rem); }
   .sentence-instruction { font-size: 0.86rem; }
+  .answer-dock__choice { min-height: 64px; }
   .player { width: min(clamp(205px, 18vw, 270px), 35cqh); }
   .gates { --gate-h-cap: 31cqh; }
   .tip-card { width: 300px; min-height: 88px; padding: 10px 13px; }
@@ -1460,7 +1827,8 @@ body.debug .answer-gate .gate-key {
   .hud-level__fill,
   .tip-card,
   .hud-pause,
-  .btn { transition: none; }
+  .btn,
+  .answer-dock__choice { transition: none; }
 
   .player-lean.lean-left,
   .player-lean.lean-right { transform: none; }
@@ -1469,9 +1837,16 @@ body.debug .answer-gate .gate-key {
   .player.player-wrong .player-reaction,
   .hud-heart.just-lost,
   .hud-pill.is-pulse,
+  .hud-pill--score.hud-coin--pulse,
   .hud-pill--streak.is-hot .hud-icon--flame,
   .answer-gate.is-correct .answer-gate__art,
-  .score-pop.is-visible { animation: none; }
+  .answer-dock__choice.is-correct,
+  .score-pop.is-visible,
+  .road-coin__image,
+  .coin-spark,
+  .coin--collecting { animation: none; }
 
-  .dust-puff { display: none; }
+  .dust-puff,
+  .coin-burst,
+  .coin--collecting { display: none; }
 }
