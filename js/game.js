@@ -9,6 +9,12 @@
  * ========================================================================== */
 
 import { ArticleRunnerEngine, GAME_STATES, GAME_MODES } from './engine.js';
+import {
+  RUN_PHASES,
+  STABLE_RUN_FRAME_INDEX,
+  advanceRunClock,
+  runFrameDurationForSpeed,
+} from './player-animation.js';
 
 /* ========================================================================
  * 1. Configuration and DOM references
@@ -46,18 +52,24 @@ const GATE_VISUALS = {
   definite: {
     art: 'assets/gates/gate-blue.webp',
     label: 'THE',
+    answerLabel: 'THE',
+    answerSublabel: 'DEFINITE',
     icon: GATE_ICONS.book,
     aria: 'Choose THE',
   },
   indefinite: {
     art: 'assets/gates/gate-green.webp',
     label: 'A / AN',
+    answerLabel: 'A / AN',
+    answerSublabel: 'INDEFINITE',
     icon: GATE_ICONS.leaf,
     aria: 'Choose A or AN',
   },
   none: {
     art: 'assets/gates/gate-purple.webp',
     label: 'NO ARTICLE',
+    answerLabel: '—',
+    answerSublabel: 'NO ARTICLE',
     icon: GATE_ICONS.ban,
     aria: 'Choose no article',
   },
@@ -169,12 +181,13 @@ const WORLD_LAYOUTS = {
     pEase: 1.48,
     roadShoulder: 0.012,
     gateStartDepth: 0.4,
-    farGateScale: 0.58,
+    farGateScale: 0.86,
     nearGateScale: 0.88,
-    dashesPerLine: 8,
-    dashW0: 0.014,
-    dashAspect: 2.8,
-    stones: 10,
+    gateSpreadFar: 1.42,
+    dashesPerLine: 6,
+    dashW0: 0.012,
+    dashAspect: 3.1,
+    stones: 8,
     patches: 2,
     tufts: 4,
     // road surface finishing (see ROAD_TEXTURE): edge-wear band width as a
@@ -187,13 +200,14 @@ const WORLD_LAYOUTS = {
     nearHalf: 0.5,
     pEase: 1.5,
     roadShoulder: 0.014,
-    gateStartDepth: 0.48,
-    farGateScale: 0.58,
+    gateStartDepth: 0.44,
+    farGateScale: 0.7,
     nearGateScale: 0.86,
-    dashesPerLine: 8,
-    dashW0: 0.018,
-    dashAspect: 2.8,
-    stones: 9,
+    gateSpreadFar: 1.38,
+    dashesPerLine: 6,
+    dashW0: 0.015,
+    dashAspect: 3,
+    stones: 8,
     patches: 2,
     tufts: 3,
     wearW: 0.08,
@@ -205,18 +219,19 @@ const WORLD_LAYOUTS = {
     // wide enough for three readable gates, and the side artworks become
     // small cropped landmark strips that frame the road instead of
     // flanking it as two full-height posters.
-    farHalf: 0.072,
+    farHalf: 0.25,
     nearHalf: 0.53,
     pEase: 1.4,
     roadShoulder: 0.012,
-    gateStartDepth: 0.68,
+    gateStartDepth: 0.61,
     // Reference: big readable boards for most of the approach, planted on
     // the lane at arrival — never tiny at spawn, never gigantic up close.
-    farGateScale: 0.46,
-    nearGateScale: 0.76,
-    dashesPerLine: 7,
-    dashW0: 0.028,
-    dashAspect: 2.8,
+    farGateScale: 0.76,
+    nearGateScale: 0.92,
+    gateSpreadFar: 1.15,
+    dashesPerLine: 6,
+    dashW0: 0.022,
+    dashAspect: 3,
     stones: 8,
     patches: 1,
     tufts: 2,
@@ -344,10 +359,12 @@ const dom = {
   hudLives: document.getElementById('hud-lives'),
   btnPause: document.getElementById('btn-pause'),
   sentence: document.getElementById('sentence'),
+  answerDock: document.getElementById('answer-dock'),
   runner: document.getElementById('runner'),
   scene: document.querySelector('.scene'),
   gatesRoot: document.getElementById('gates'),
   player: document.getElementById('player'),
+  playerLean: document.getElementById('player-lean'),
   playerImg: document.getElementById('player-img'),
   scorePop: document.getElementById('score-pop'),
   tipText: document.getElementById('tip-text'),
@@ -394,6 +411,7 @@ const dom = {
 };
 
 const gateEls = [...dom.gatesRoot.querySelectorAll('.answer-gate')];
+const answerChoiceEls = [...dom.answerDock.querySelectorAll('.answer-dock__choice')];
 const roadGuideEls = [...document.querySelectorAll('.road-guide')];
 
 /* ========================================================================
@@ -403,6 +421,7 @@ const roadGuideEls = [...document.querySelectorAll('.road-guide')];
 let gameData = null;
 let engine = null;
 let selectedMode = GAME_MODES.LEARN;
+let currentQuestionSentence = '';
 let currentScreen = 'start';
 let gateVisualProgress = 0; // frozen while not PLAYING so gates don't snap back
 let rafId = null;
@@ -494,7 +513,9 @@ async function init() {
 
   bindEngineEvents();
   bindUiEvents();
-  preloadRunFrames(); // concurrent, non-blocking: decode can stall in occluded tabs
+  // Start decoding immediately. startGame awaits this exact promise, so a
+  // fast click can never enter gameplay before the complete cycle is ready.
+  runFramesReady = preloadRunFrames();
   preloadGateArt(); // warm the 3 gate images once; reused from cache afterwards
   // (the two scenery PNGs are plain <img> tags in #runner — the browser
   // fetches and decodes them at page load, before the game screen shows)
@@ -522,6 +543,7 @@ function bindEngineEvents() {
   });
   engine.on('level:started', (payload) => {
     logEvent('level:started', payload);
+    resetPlayerAnimation(); // only a new/restarted level restarts the gait
     clearStartNote();
     renderHUD();
   });
@@ -533,6 +555,7 @@ function bindEngineEvents() {
     logEvent('player:lane-changed', payload);
     renderPlayer(payload.to);
     highlightChosenGate(payload.to);
+    highlightAnswerChoice(payload.to);
     applyLaneLean(payload.from, payload.to);
   });
   engine.on('game:tick', () => {
@@ -565,9 +588,10 @@ function bindEngineEvents() {
 function handleStateChanged({ to }) {
   // The fox runs while the engine is PLAYING and keeps trotting through
   // FEEDBACK (slowed by the world crawl in the loop); every other state
-  // freezes the current frame (bob and shadow animations stop too).
+  // freezes the exact image + phase-driven shadow values.
   const running = to === GAME_STATES.PLAYING || to === GAME_STATES.FEEDBACK;
   dom.player.classList.toggle('is-running', running);
+  updateAnswerDockState(to);
   switch (to) {
     case GAME_STATES.READY:
       showScreen('start');
@@ -588,11 +612,13 @@ function handleStateChanged({ to }) {
       renderPause(true);
       break;
     case GAME_STATES.LEVEL_COMPLETE:
+      showStablePlayerPose();
       renderPause(false);
       renderLevelList();
       showScreen('complete');
       break;
     case GAME_STATES.GAME_OVER:
+      showStablePlayerPose();
       renderPause(false);
       renderLevelList();
       showScreen('gameover');
@@ -753,14 +779,11 @@ function renderQuestion(payload) {
   gateVisualProgress = 0;
   gateLabelBaseStale = true; // fresh question → remeasure label metrics on screen
 
-  // New gate group: spawn AT the vanishing point (tiny, converged, fading
-  // in) and spread out into the lanes as the question's gate clock runs.
-  // The road itself (dashes/stones/tufts) never resets — it just keeps
-  // flowing, so the next question reads as a new stretch of the same
-  // endless road.
+  // Place a fresh gate group far enough up-road to read immediately, then
+  // advance it through the same projection used by the lane guides.
   const activeLayout = WORLD_LAYOUTS[sceneGeo.layout] ?? WORLD_LAYOUTS.desktop;
   world.gate.depth = activeLayout.gateStartDepth ?? 0.4;
-  world.gate.spawnFade = 0;
+  world.gate.spawnFade = 1;
   world.feedbackT = 0;
   world.crawl = 1;
   const durS = (payload.gateDurationMs ?? 12000) / 1000;
@@ -773,7 +796,8 @@ function renderQuestion(payload) {
 
   // Sentence with a visible blank, built from text nodes only.
   dom.sentence.replaceChildren();
-  const [before, after = ''] = payload.question.sentence.split('___');
+  currentQuestionSentence = payload.question.sentence;
+  const [before, after = ''] = currentQuestionSentence.split('___');
   dom.sentence.append(document.createTextNode(before));
   const blank = document.createElement('span');
   blank.className = 'blank';
@@ -792,11 +816,13 @@ function renderQuestion(payload) {
   }
 
   renderLanes(payload.laneMap);
+  renderAnswerDock(payload.laneMap);
   renderPlayer(payload.playerLane);
   highlightChosenGate(payload.playerLane);
+  highlightAnswerChoice(payload.playerLane);
+  updateAnswerDockState(engine.state);
   hideFeedback();
   dom.player.classList.remove('player-correct', 'player-wrong');
-  resetPlayerAnimation(); // smooth, valid pose for the new question
   renderHUD();
 }
 
@@ -825,6 +851,35 @@ function renderLanes(laneMap) {
   renderLaneGuides();
 }
 
+/** The dock mirrors the same randomized laneMap rendered by the road gates. */
+function renderAnswerDock(laneMap) {
+  answerChoiceEls.forEach((choice, lane) => {
+    const category = laneMap[lane];
+    const visuals = GATE_VISUALS[category];
+    if (!visuals) return;
+
+    choice.dataset.category = category;
+    choice.querySelector('.answer-dock__label').textContent = visuals.answerLabel;
+    choice.querySelector('.answer-dock__sublabel').textContent = visuals.answerSublabel;
+    choice.setAttribute('aria-label', visuals.aria);
+    choice.setAttribute('aria-pressed', 'false');
+    choice.classList.remove('is-selected', 'is-correct', 'is-wrong');
+  });
+}
+
+function updateAnswerDockState(state) {
+  const visible =
+    state === GAME_STATES.PLAYING ||
+    state === GAME_STATES.PAUSED ||
+    state === GAME_STATES.FEEDBACK;
+  const interactive = state === GAME_STATES.PLAYING;
+
+  dom.answerDock.classList.toggle('hidden', !visible);
+  answerChoiceEls.forEach((choice) => {
+    choice.disabled = !interactive;
+  });
+}
+
 function renderPlayer(lane) {
   dom.player.style.left = PLAYER_LANE_POSITIONS[lane];
   roadGuideEls.forEach((guide, index) => guide.classList.toggle('is-active', index === lane));
@@ -833,7 +888,8 @@ function renderPlayer(lane) {
 
 function renderLaneGuides() {
   if (world.W < 40 || roadGuideEls.length === 0) return;
-  const depth = sceneGeo.layout === 'mobile' ? 0.76 : sceneGeo.layout === 'tablet' ? 0.64 : 0.58;
+  const offset = sceneGeo.layout === 'mobile' ? 0.05 : sceneGeo.layout === 'tablet' ? 0.07 : 0.09;
+  const depth = Math.min(0.94, world.gate.depth + offset);
   roadGuideEls.forEach((guide, lane) => {
     const laneU = lane === 1 ? 0 : lane === 0 ? -1 : 1;
     const p = projectRoadPoint(depth, laneU);
@@ -867,18 +923,26 @@ let laneLeanTimer = null;
 
 function applyLaneLean(from, to) {
   if (from === null || from === undefined || from === to) return;
-  dom.player.classList.remove('lean-left', 'lean-right');
+  dom.playerLean.classList.remove('lean-left', 'lean-right');
   // Restart the transform transition cleanly when changes come rapid-fire.
-  void dom.player.offsetWidth;
-  dom.player.classList.add(to > from ? 'lean-right' : 'lean-left');
+  void dom.playerLean.offsetWidth;
+  dom.playerLean.classList.add(to > from ? 'lean-right' : 'lean-left');
   clearTimeout(laneLeanTimer);
   laneLeanTimer = setTimeout(() => {
-    dom.player.classList.remove('lean-left', 'lean-right');
+    dom.playerLean.classList.remove('lean-left', 'lean-right');
   }, 240);
 }
 
 function highlightChosenGate(lane) {
   gateEls.forEach((gate, index) => gate.classList.toggle('is-chosen', index === lane));
+}
+
+function highlightAnswerChoice(lane) {
+  answerChoiceEls.forEach((choice, index) => {
+    const selected = index === lane;
+    choice.classList.toggle('is-selected', selected);
+    choice.setAttribute('aria-pressed', String(selected));
+  });
 }
 
 /* ---- perspective: gateProgress (engine, normalized 0..1) → visual depth ---
@@ -1248,7 +1312,7 @@ function renderDash(d) {
   d.el.style.transform =
     `translate3d(${(p.x * world.W).toFixed(1)}px, ${(p.y * world.H).toFixed(1)}px, 0) ` +
     `translate(-50%, -50%) rotate(${world.divAngle[d.line].toFixed(1)}deg) scale(${p.scale.toFixed(3)})`;
-  d.el.style.opacity = Math.min(1, 0.38 + p.t * 2.4).toFixed(2);
+  d.el.style.opacity = Math.min(0.74, 0.22 + p.t * 1.55).toFixed(2);
   setLayerZ(d.el, d.depth);
 }
 
@@ -1257,7 +1321,7 @@ function renderStone(s) {
   s.el.style.transform =
     `translate3d(${(p.x * world.W).toFixed(1)}px, ${(p.y * world.H).toFixed(1)}px, 0) ` +
     `translate(-50%, -50%) rotate(${s.rot.toFixed(0)}deg) scale(${p.scale.toFixed(3)})`;
-  s.el.style.opacity = Math.min(0.85, 0.2 + p.t * 2.2).toFixed(2);
+  s.el.style.opacity = Math.min(0.5, 0.12 + p.t * 1.25).toFixed(2);
   setLayerZ(s.el, s.depth);
 }
 
@@ -1404,6 +1468,7 @@ function renderGates() {
   const activeLayout = WORLD_LAYOUTS[sceneGeo.layout] ?? WORLD_LAYOUTS.desktop;
   const floorFar = activeLayout.farGateScale ?? RUNNER_GEO.floorFar;
   const floorNear = activeLayout.nearGateScale ?? RUNNER_GEO.floorNear;
+  const spreadFar = activeLayout.gateSpreadFar ?? 1;
   const D = world.gate.depth;
   const t = easeDepth(D);
   // Perspective-true gate size: the road's own width ratio at this depth,
@@ -1423,7 +1488,8 @@ function renderGates() {
     // at spawn, landing exactly on the CSS lane anchors (--lane-x-*) at the
     // collision moment, then spreading past the camera during pass-through.
     const laneU = lane === 1 ? 0 : lane === 0 ? -1 : 1;
-    const p = projectRoadPoint(D, laneU);
+    const spread = 1 + (spreadFar - 1) * (1 - Math.min(t, 1));
+    const p = projectRoadPoint(D, laneU * spread);
     const el = gateEls[lane];
     // (x, y) is the gate's ground point: bottom-centered, standing on the road.
     el.style.transform =
@@ -1468,6 +1534,11 @@ function renderFeedback(result) {
   });
   const chosenGate = gateEls[result.selectedLane];
   if (chosenGate && !result.isCorrect) chosenGate.classList.add('is-wrong');
+  answerChoiceEls.forEach((choice) => {
+    if (choice.dataset.category === result.correctCategory) choice.classList.add('is-correct');
+  });
+  const chosenAnswer = answerChoiceEls[result.selectedLane];
+  if (chosenAnswer && !result.isCorrect) chosenAnswer.classList.add('is-wrong');
   dom.player.classList.toggle('player-correct', result.isCorrect);
   dom.player.classList.toggle('player-wrong', !result.isCorrect);
 
@@ -1476,24 +1547,20 @@ function renderFeedback(result) {
   dom.screenGame.classList.add('is-feedback');
   dom.feedbackTitle.textContent = result.isCorrect ? 'Correct!' : 'Not quite';
 
-  // Completed sentence with the filled article emphasized (when there is one).
+  // Rebuild from the exact source blank so the highlight always marks the
+  // inserted answer, never an earlier matching substring such as the "a" in
+  // "saw" or the "an" in "wants".
   dom.feedbackSentence.replaceChildren();
   if (result.correctArticle) {
-    // Highlight only the first occurrence — an article like "a" appears many times.
-    const at = result.completedSentence.indexOf(result.correctArticle);
-    if (at === -1) {
+    const parts = currentQuestionSentence.split('___');
+    if (parts.length !== 2) {
       dom.feedbackSentence.textContent = result.completedSentence;
     } else {
-      dom.feedbackSentence.append(
-        document.createTextNode(result.completedSentence.slice(0, at))
-      );
+      dom.feedbackSentence.append(document.createTextNode(parts[0]));
       const filled = document.createElement('span');
       filled.className = 'filled';
       filled.textContent = result.correctArticle;
-      dom.feedbackSentence.append(
-        filled,
-        document.createTextNode(result.completedSentence.slice(at + result.correctArticle.length))
-      );
+      dom.feedbackSentence.append(filled, document.createTextNode(parts[1]));
     }
   } else {
     dom.feedbackSentence.textContent = result.completedSentence;
@@ -1588,7 +1655,8 @@ function renderLevelList() {
   const defaultLevelId = pickDefaultLevel();
   dom.levelList.replaceChildren(
     ...gameData.levels.map((level) => {
-      const unlocked = progress.unlockedLevels.includes(level.id);
+      const unlocked =
+        selectedMode === GAME_MODES.ARCADE || progress.unlockedLevels.includes(level.id);
       const record = progress.levels[String(level.id)];
       const stars = record ? record.bestStars : 0;
       const isCurrent = unlocked && level.id === defaultLevelId;
@@ -1676,12 +1744,21 @@ function pickDefaultLevel() {
   return (next ?? gameData.levels[gameData.levels.length - 1]).id;
 }
 
-function startGame(levelId) {
+let startGamePending = false;
+
+async function startGame(levelId) {
+  if (startGamePending) return;
+  startGamePending = true;
   try {
+    // Local assets normally decode during the start screen. Awaiting here is
+    // the last guard against a blank/flickering first stride on slow devices.
+    await runFramesReady;
     engine.startLevel(levelId, { mode: selectedMode });
   } catch (error) {
     logError('startLevel', error);
     showStartNote(error.message);
+  } finally {
+    startGamePending = false;
   }
 }
 
@@ -1718,6 +1795,13 @@ function bindUiEvents() {
       event.preventDefault();
       event.stopPropagation();
       movePlayerToLane(Number(gate.dataset.lane));
+    });
+  }
+
+  // The dock is another lane-control surface; the engine still resolves answers.
+  for (const choice of answerChoiceEls) {
+    choice.addEventListener('click', () => {
+      movePlayerToLane(Number(choice.dataset.lane));
     });
   }
 
@@ -1774,6 +1858,13 @@ function bindUiEvents() {
   // -- keyboard --
   window.addEventListener('keydown', handleKeydown);
 
+  // Respect live OS/browser preference changes without reloading the game.
+  if (reducedMotionQuery?.addEventListener) {
+    reducedMotionQuery.addEventListener('change', handleReducedMotionChange);
+  } else if (reducedMotionQuery?.addListener) {
+    reducedMotionQuery.addListener(handleReducedMotionChange);
+  }
+
   // -- responsive geometry: lanes, horizon + label metrics follow the scene
   //    breakpoints in CSS (680px / 1100px); rotation/resize re-reads them --
   readSceneGeo();
@@ -1797,6 +1888,7 @@ function setMode(mode) {
   dom.btnModeArcade.classList.toggle('is-active', mode === GAME_MODES.ARCADE);
   dom.btnModeLearn.setAttribute('aria-pressed', String(mode === GAME_MODES.LEARN));
   dom.btnModeArcade.setAttribute('aria-pressed', String(mode === GAME_MODES.ARCADE));
+  renderLevelList();
 }
 
 /** All movement goes through the engine; the UI never tracks lanes itself. */
@@ -1818,6 +1910,14 @@ function handleKeydown(event) {
   }
   if (!engine || currentScreen === 'start' || currentScreen === 'error') return;
   const state = engine.state;
+  const focusedAnswer = event.target.closest?.('.answer-dock__choice');
+  if (focusedAnswer && (event.key === ' ' || event.key === 'Enter')) {
+    if (state === GAME_STATES.PLAYING) {
+      event.preventDefault();
+      movePlayerToLane(Number(focusedAnswer.dataset.lane));
+    }
+    return;
+  }
   let handled = true;
 
   switch (event.key) {
@@ -1883,68 +1983,93 @@ function continueAfterFeedback() {
  *     controller only READS game state and renders the character.
  * ====================================================================== */
 
-/** Approved run cycle (order chosen by measured stride continuity). */
-const RUN_FRAMES = [
-  { src: 'assets/characters/fox-run-01.png', cls: 'pf-1' },
-  { src: 'assets/characters/fox-run-02.png', cls: 'pf-2' },
-  { src: 'assets/characters/fox-run-03.png', cls: 'pf-3' },
-  { src: 'assets/characters/fox-run-04.png', cls: 'pf-4' },
-  { src: 'assets/characters/fox-run-05.png', cls: 'pf-5' },
-  { src: 'assets/characters/fox-run-06.png', cls: 'pf-6' },
-  { src: 'assets/characters/fox-run-07.png', cls: 'pf-7' },
-  { src: 'assets/characters/fox-run-08.png', cls: 'pf-8' },
-];
-
-/** Milliseconds per running frame (visual only — never affects scoring). */
-const RUN_FRAME_DURATION = 88;
-
-const RUN_FRAME_DURATION_REDUCED = 220;
-
 /** Single lane-position mapping (values live in CSS on .runner). */
 const PLAYER_LANE_POSITIONS = ['var(--lane-x-0)', 'var(--lane-x-1)', 'var(--lane-x-2)'];
 
-const prefersReducedMotion =
+const reducedMotionQuery =
   typeof window !== 'undefined' && window.matchMedia
-    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    : false;
+    ? window.matchMedia('(prefers-reduced-motion: reduce)')
+    : null;
+let prefersReducedMotion = reducedMotionQuery?.matches ?? false;
 
 let runFrameIndex = 0;
 let runFrameAccumulator = 0;
-/** Frames that preloaded successfully; always falls back to the first valid one. */
-let runtimeRunFrames = [];
+let runFramesReady = Promise.resolve(false);
+/** Keep decoded Image instances alive so swaps always hit decoded cache. */
+let decodedRunImages = [];
+/** Never cycle a partial gait: eight decoded phases or one planted fallback. */
+let runtimeRunFrames = [{ ...RUN_PHASES[STABLE_RUN_FRAME_INDEX] }];
 
 /**
  * Preload and decode every frame before gameplay so the first run never
- * flickers. Runs concurrently with boot and NEVER blocks the app: some
- * browsers stall img.decode() while the page is occluded, so each frame is
- * raced against a timeout and init() does not await completion. Frames that
- * genuinely fail (naturalWidth stays 0) are dropped and logged in DEBUG mode;
- * the animation then simply runs on the frames that did load.
+ * flickers. Each WebP may fall back to its PNG master, but the game never
+ * cycles an incomplete sequence: one missing phase selects a stable pose.
  */
-const FRAME_PRELOAD_TIMEOUT_MS = 4000;
+const RUN_FRAME_PRELOAD_TIMEOUT_MS = 4500;
 
-function preloadOneFrame(frame) {
-  return new Promise((resolve) => {
+function loadDecodedImage(src) {
+  return new Promise((resolve, reject) => {
     const img = new Image();
-    const done = () => resolve({ frame, ok: img.naturalWidth > 0 });
-    img.onload = done;
-    img.onerror = () => resolve({ frame, ok: false });
-    img.src = frame.src;
-    if (typeof img.decode === 'function') {
-      img.decode().then(done, done); // decode result is advisory; onload/timeout settle it
-    }
-    setTimeout(done, FRAME_PRELOAD_TIMEOUT_MS);
+    let settled = false;
+    let timeoutId = null;
+
+    const settle = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId !== null) clearTimeout(timeoutId);
+      img.onload = null;
+      img.onerror = null;
+      callback(value);
+    };
+
+    img.onload = async () => {
+      try {
+        if (typeof img.decode === 'function') await img.decode();
+        if (img.naturalWidth <= 0) throw new Error(`Zero-width image: ${src}`);
+        settle(resolve, img);
+      } catch (error) {
+        settle(reject, error);
+      }
+    };
+    img.onerror = () => settle(reject, new Error(`Could not load ${src}`));
+    timeoutId = setTimeout(() => {
+      settle(reject, new Error(`Timed out decoding ${src}`));
+      // Abort a candidate that is still pending before trying its fallback.
+      img.src = '';
+    }, RUN_FRAME_PRELOAD_TIMEOUT_MS);
+    img.src = src;
   });
 }
 
-async function preloadRunFrames() {
-  const results = await Promise.all(RUN_FRAMES.map(preloadOneFrame));
-  runtimeRunFrames = results.filter((r) => r.ok).map((r) => r.frame);
-  if (runtimeRunFrames.length < RUN_FRAMES.length && DEBUG) {
-    const missing = RUN_FRAMES.filter((f) => !runtimeRunFrames.includes(f)).map((f) => f.src);
-    console.warn('[game] player frames failed to preload:', missing);
+async function preloadOneFrame(frame) {
+  for (const src of [frame.src, frame.fallbackSrc]) {
+    try {
+      const image = await loadDecodedImage(src);
+      return { frame: { ...frame, src }, image };
+    } catch (error) {
+      if (DEBUG) console.warn(`[game] run frame candidate failed: ${src}`, error);
+    }
   }
-  applyRunFrame(0);
+  return null;
+}
+
+async function preloadRunFrames() {
+  const results = await Promise.all(RUN_PHASES.map(preloadOneFrame));
+  const complete = results.every(Boolean);
+  decodedRunImages = results.filter(Boolean).map((result) => result.image);
+
+  if (complete) {
+    runtimeRunFrames = results.map((result) => result.frame);
+  } else {
+    const stableResult = results[STABLE_RUN_FRAME_INDEX] ?? results.find(Boolean);
+    runtimeRunFrames = stableResult
+      ? [stableResult.frame]
+      : [{ ...RUN_PHASES[STABLE_RUN_FRAME_INDEX] }];
+    const missing = RUN_PHASES.filter((_, index) => !results[index]).map((frame) => frame.src);
+    console.error('[game] incomplete fox run cycle; using a stable pose:', missing);
+  }
+  showStablePlayerPose();
+  return complete;
 }
 
 /**
@@ -1981,76 +2106,100 @@ async function preloadGateArt() {
  * Frames actually cycled in the current motion-preference mode.
  */
 function activeRunFrames() {
-  if (!prefersReducedMotion || runtimeRunFrames.length < 2) return runtimeRunFrames;
-  // Reduced motion: slow two-frame loop (first + opposite phase of the cycle).
-  const mid = Math.floor(runtimeRunFrames.length / 2);
-  return [runtimeRunFrames[0], runtimeRunFrames[mid]];
+  if (!prefersReducedMotion && runtimeRunFrames.length === RUN_PHASES.length) {
+    return runtimeRunFrames;
+  }
+  const stable = runtimeRunFrames.find(
+    (frame) => frame.id === RUN_PHASES[STABLE_RUN_FRAME_INDEX].id,
+  );
+  return [stable ?? runtimeRunFrames[0] ?? RUN_PHASES[STABLE_RUN_FRAME_INDEX]];
 }
 
 function activeFrameDuration() {
-  return prefersReducedMotion ? RUN_FRAME_DURATION_REDUCED : RUN_FRAME_DURATION;
+  return runFrameDurationForSpeed(
+    world.speed,
+    WORLD_MOTION.speedMin,
+    WORLD_MOTION.speedMax,
+  );
+}
+
+function paintRunFrame(frame, sourceIndex) {
+  if (!frame) return;
+  dom.player.style.setProperty('--shadow-scale', String(frame.shadowScale));
+  dom.player.style.setProperty('--shadow-opacity', String(frame.shadowOpacity));
+  dom.player.style.setProperty('--shadow-blur', `${frame.shadowBlurPx}px`);
+  dom.player.dataset.runFrame = String(sourceIndex + 1);
+  dom.player.dataset.runPhase = frame.id;
+  if (!dom.playerImg.src.endsWith(frame.src)) dom.playerImg.src = frame.src;
 }
 
 function applyRunFrame(index) {
-  const frame = activeRunFrames()[index];
-  if (!frame || dom.playerImg.src.endsWith(frame.src)) return;
-  dom.playerImg.src = frame.src;
-  dom.playerImg.className = `player-img ${frame.cls}`;
+  const frames = activeRunFrames();
+  const frame = frames[index];
+  if (!frame) return;
+  const sourceIndex = RUN_PHASES.findIndex((phase) => phase.id === frame.id);
+  paintRunFrame(frame, Math.max(0, sourceIndex));
 }
 
 function updatePlayerAnimation(deltaMs) {
   const frames = activeRunFrames();
-  if (frames.length === 0) return;
-  // Clamp so one long frame (tab switch) cannot fast-forward the cycle.
-  runFrameAccumulator += Math.min(deltaMs, 250);
-  const duration = activeFrameDuration();
-  while (runFrameAccumulator >= duration) {
-    runFrameAccumulator -= duration;
-    runFrameIndex = (runFrameIndex + 1) % frames.length;
+  if (frames.length < 2) {
+    applyRunFrame(0);
+    return;
   }
+  const next = advanceRunClock(
+    { index: runFrameIndex, accumulator: runFrameAccumulator },
+    deltaMs,
+    activeFrameDuration(),
+    frames.length,
+  );
+  runFrameIndex = next.index;
+  runFrameAccumulator = next.accumulator;
   applyRunFrame(runFrameIndex);
 }
 
-/** Back to a valid pose for a new question, level restart or fresh run. */
+/** Back to the first push-off only for a genuinely new/restarted level. */
 function resetPlayerAnimation() {
   runFrameIndex = 0;
   runFrameAccumulator = 0;
   applyRunFrame(0);
 }
 
+function showStablePlayerPose() {
+  const stable = runtimeRunFrames.find(
+    (frame) => frame.id === RUN_PHASES[STABLE_RUN_FRAME_INDEX].id,
+  ) ?? runtimeRunFrames[0] ?? RUN_PHASES[STABLE_RUN_FRAME_INDEX];
+  runFrameIndex = Math.max(0, runtimeRunFrames.indexOf(stable));
+  runFrameAccumulator = 0;
+  paintRunFrame(stable, STABLE_RUN_FRAME_INDEX);
+}
+
+function handleReducedMotionChange(event) {
+  prefersReducedMotion = event.matches;
+  runFrameAccumulator = 0;
+  if (prefersReducedMotion) showStablePlayerPose();
+  else applyRunFrame(runFrameIndex % Math.max(1, runtimeRunFrames.length));
+}
+
 /* ========================================================================
  * 15. Animation loop (single driver; the engine owns timing & collision)
  * ====================================================================== */
 
-/**
- * Dev/test fallback: "?frameloop=interval" drives the identical loop from a
- * 16ms timer. Browsers starve requestAnimationFrame in occluded webviews
- * (e.g. automated visual checks), which would otherwise freeze the world;
- * the flag changes nothing about gameplay or timing semantics.
- */
-const FORCE_INTERVAL_LOOP =
-  typeof location !== 'undefined' && /[?&]frameloop=interval/.test(location.search);
-
 function startLoop() {
   if (rafId !== null) return;
   lastFrameTime = null;
-  if (FORCE_INTERVAL_LOOP) {
-    rafId = setInterval(() => loop(performance.now()), 16);
-    return;
-  }
   rafId = requestAnimationFrame(loop);
 }
 
 function stopLoop() {
   if (rafId !== null) {
-    if (FORCE_INTERVAL_LOOP) clearInterval(rafId);
-    else cancelAnimationFrame(rafId);
+    cancelAnimationFrame(rafId);
     rafId = null;
   }
 }
 
 function loop(now) {
-  if (!FORCE_INTERVAL_LOOP) rafId = requestAnimationFrame(loop);
+  rafId = requestAnimationFrame(loop);
   const deltaMs = lastFrameTime === null ? 0 : now - lastFrameTime;
   lastFrameTime = now;
 
@@ -2087,8 +2236,10 @@ function loop(now) {
 
       if (state === GAME_STATES.FEEDBACK) {
         // The fox keeps trotting through the feedback moment, matched to the
-        // world rate so it never looks like it crashed into the gate.
-        updatePlayerAnimation(Math.min(deltaMs, 40) * (0.35 + Math.max(rate, 0.15)));
+        // slow world crawl. Keep the run clock below normal speed; the separate
+        // one-shot reaction wrapper carries the celebratory/hesitation accent.
+        const feedbackRunRate = Math.min(0.58, 0.28 + Math.max(rate, 0.15) * 0.3);
+        updatePlayerAnimation(Math.min(deltaMs, 40) * feedbackRunRate);
       }
 
       updateWorldMotion(dt, rate, state === GAME_STATES.PLAYING ? 1 : Math.max(rate, 0.15) * 1.6);

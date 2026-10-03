@@ -78,11 +78,15 @@ controls, gate key hints, verbose event logging and
 `window.articleRunnerDebug.engine`. With `DEBUG = false` none of these appear
 and gameplay is unaffected.
 
-### Asset placeholders
+### Character and environment assets
 
-`assets/characters/` holds the approved, final fox run cycle
-(`fox-run-01.png` … `fox-run-08.png`, 1254×1254 RGBA PNGs, order chosen by
-measured stride continuity). `assets/gates/` holds the approved gate artwork
+`assets/characters/fox-run-01.png` … `fox-run-08.png` are the untouched
+1254×1254 RGBA masters for the approved fox. Gameplay uses their normalized,
+alpha-safe WebP builds in `assets/characters/runtime/`; the deterministic
+translation/encoding recipe lives in `scripts/build-run-frames.py`. The eight
+runtime frames retain one scale and canvas while encoding the mirrored
+push-off → air → landing → compression gait. `assets/gates/` holds the approved
+gate artwork
 (`gate-blue/green/purple.webp`, PNG originals in `source/`).
 `assets/backgrounds/` holds the approved environment paintings — one per
 device class (`road-desktop.webp` 1672×941, `road-tablet.webp` 1448×1086,
@@ -90,6 +94,20 @@ device class (`road-desktop.webp` 1672×941, `road-tablet.webp` 1448×1086,
 folders are placeholders for the upcoming production pass: scenery props in
 `environment/`, HUD icons (heart, star, flame) in `ui/`, and music plus
 effect sounds in `audio/`.
+
+### Fox run system (finalized, locked)
+
+`js/player-animation.js` is the single run manifest. It locks the eight phase
+names, frame order, fallback PNGs, 75–95ms cadence, and per-phase shadow
+values. `js/game.js` advances that manifest from the existing
+`requestAnimationFrame` accumulator, preloads and decodes the complete cycle
+before Play, and keeps the current phase across questions and pause/resume.
+Lane movement, lean, feedback reactions, frame playback, and the ground shadow
+each use separate wrappers so their transforms cannot overwrite one another.
+Reduced motion holds one planted compression frame while keeping lane input
+functional. Level complete and Arcade game over also settle on that stable
+pose. Do not reorder, rescale, or redraw this system unless a reproducible
+animation bug is found.
 
 ### Environment / scene system (finalized, locked)
 

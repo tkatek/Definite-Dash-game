@@ -40,7 +40,9 @@ def build_frame(number: int) -> tuple[Path, int, int]:
         raise ValueError(f"{source.name}: expected {CANVAS_SIZE}, got {image.size}")
 
     normalized = Image.new("RGBA", CANVAS_SIZE, (0, 0, 0, 0))
-    normalized.paste(image, OFFSETS[number], image)
+    # Copy RGBA directly. Passing the image again as a paste mask would apply
+    # its alpha twice and thin the semi-transparent fur fringe.
+    normalized.paste(image, OFFSETS[number])
     normalized.save(
         target,
         format="WEBP",
@@ -55,6 +57,8 @@ def build_frame(number: int) -> tuple[Path, int, int]:
     verified = Image.open(target).convert("RGBA")
     if verified.size != CANVAS_SIZE or verified.getextrema()[3][0] != 0:
         raise ValueError(f"{target.name}: invalid canvas or missing transparency")
+    if verified.getchannel("A").tobytes() != normalized.getchannel("A").tobytes():
+        raise ValueError(f"{target.name}: alpha edge changed during encoding")
     return target, source.stat().st_size, target.stat().st_size
 
 

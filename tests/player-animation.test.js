@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import {
   RUN_FRAME_MS,
@@ -20,10 +21,30 @@ const EXPECTED_PHASES = [
   'right-compression',
 ];
 
+function uint24LE(buffer, offset) {
+  return buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16);
+}
+
 test('run manifest locks the approved eight-phase gait and unique files', () => {
   assert.deepEqual(RUN_PHASES.map((frame) => frame.id), EXPECTED_PHASES);
   assert.equal(new Set(RUN_PHASES.map((frame) => frame.src)).size, 8);
   assert.equal(new Set(RUN_PHASES.map((frame) => frame.fallbackSrc)).size, 8);
+});
+
+test('every runtime WebP and PNG fallback exists at the locked 1254px canvas', async () => {
+  for (const frame of RUN_PHASES) {
+    const webp = await readFile(new URL(`../${frame.src}`, import.meta.url));
+    assert.equal(webp.subarray(0, 4).toString('ascii'), 'RIFF', frame.src);
+    assert.equal(webp.subarray(8, 12).toString('ascii'), 'WEBP', frame.src);
+    assert.equal(webp.subarray(12, 16).toString('ascii'), 'VP8X', frame.src);
+    assert.equal(uint24LE(webp, 24) + 1, 1254, `${frame.src} width`);
+    assert.equal(uint24LE(webp, 27) + 1, 1254, `${frame.src} height`);
+
+    const png = await readFile(new URL(`../${frame.fallbackSrc}`, import.meta.url));
+    assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10], frame.fallbackSrc);
+    assert.equal(png.readUInt32BE(16), 1254, `${frame.fallbackSrc} width`);
+    assert.equal(png.readUInt32BE(20), 1254, `${frame.fallbackSrc} height`);
+  }
 });
 
 test('normal cadence stays within the 600–760ms acceptance range', () => {
