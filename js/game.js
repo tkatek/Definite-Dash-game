@@ -13,6 +13,7 @@ import {
   RUN_PHASES,
   STABLE_RUN_FRAME_INDEX,
   advanceRunClock,
+  feedbackRunRateForWorldRate,
   runFrameDurationForSpeed,
 } from './player-animation.js';
 
@@ -52,24 +53,18 @@ const GATE_VISUALS = {
   definite: {
     art: 'assets/gates/gate-blue.webp',
     label: 'THE',
-    answerLabel: 'THE',
-    answerSublabel: 'DEFINITE',
     icon: GATE_ICONS.book,
     aria: 'Choose THE',
   },
   indefinite: {
     art: 'assets/gates/gate-green.webp',
     label: 'A / AN',
-    answerLabel: 'A / AN',
-    answerSublabel: 'INDEFINITE',
     icon: GATE_ICONS.leaf,
     aria: 'Choose A or AN',
   },
   none: {
     art: 'assets/gates/gate-purple.webp',
     label: 'NO ARTICLE',
-    answerLabel: '—',
-    answerSublabel: 'NO ARTICLE',
     icon: GATE_ICONS.ban,
     aria: 'Choose no article',
   },
@@ -133,7 +128,7 @@ const RUNNER_GEO = {
  * World-motion system — the coded perspective road (visual only)
  * ------------------------------------------------------------------------
  * One projection drives every world object. A normalized DEPTH value maps
- * onto the code-built road between the two scenery pieces:
+ * onto the transparent road finish aligned over the responsive scenery plate:
  *
  *   depth 0    → the road's vanishing point (--scene-horizon-y)
  *   depth 1    → the gate collision plane (CSS --scene-collision-y)
@@ -159,7 +154,7 @@ const RUNNER_GEO = {
 
 /**
  * World layouts — per device class, keyed by the CSS --scene-layout custom
- * property (same 680px/1200px breakpoints the lane anchors use). Horizon,
+ * property (same 680px/1100px breakpoints the lane anchors use). Horizon,
  * collision line and lane anchors live in CSS (readSceneGeo()); this table
  * adds what CSS can't express:
  *
@@ -168,11 +163,10 @@ const RUNNER_GEO = {
  *                       and beyond extrapolate the same line)
  *   pEase               perspective easing exponent (t = depth^pEase)
  *   roadShoulder        soft grass rim beyond the sand (grows toward camera)
- *   sceneryW/Mode       side-scenery sizing: 'fit' preserves the artwork's
- *                       aspect anchored to the bottom edge; 'cover' fills a
- *                       full-height box with the road-side strip of the art
+ *   far/nearGateScale   readability floor for the gate artwork
+ *   gateSpreadFar       opens the far gates without changing collision lanes
  *   dashW0/dashAspect   lane-marker size at the collision plane
- *   stones/tufts        pooled prop counts (dashes are fixed at 8 per line)
+ *   stones/tufts        pooled prop counts
  */
 const WORLD_LAYOUTS = {
   desktop: {
@@ -181,8 +175,9 @@ const WORLD_LAYOUTS = {
     pEase: 1.48,
     roadShoulder: 0.012,
     gateStartDepth: 0.4,
-    farGateScale: 0.86,
-    nearGateScale: 0.88,
+    gateLaneFill: 0.72,
+    farGateScale: 0.62,
+    nearGateScale: 0.82,
     gateSpreadFar: 1.42,
     dashesPerLine: 6,
     dashW0: 0.012,
@@ -201,8 +196,9 @@ const WORLD_LAYOUTS = {
     pEase: 1.5,
     roadShoulder: 0.014,
     gateStartDepth: 0.44,
-    farGateScale: 0.7,
-    nearGateScale: 0.86,
+    gateLaneFill: 0.72,
+    farGateScale: 0.48,
+    nearGateScale: 0.82,
     gateSpreadFar: 1.38,
     dashesPerLine: 6,
     dashW0: 0.015,
@@ -216,16 +212,14 @@ const WORLD_LAYOUTS = {
   mobile: {
     // Phone portrait is its own composition, not a shrunken desktop: the
     // road dominates (88% of the width at the bottom), the horizon stays
-    // wide enough for three readable gates, and the side artworks become
-    // small cropped landmark strips that frame the road instead of
-    // flanking it as two full-height posters.
+    // wide enough for three readable gates, while the portrait scenery plate
+    // keeps its strongest landmarks high and opens the foreground for play.
     farHalf: 0.25,
     nearHalf: 0.53,
     pEase: 1.4,
     roadShoulder: 0.012,
     gateStartDepth: 0.61,
-    // Reference: big readable boards for most of the approach, planted on
-    // the lane at arrival — never tiny at spawn, never gigantic up close.
+    gateLaneFill: 0.72,
     farGateScale: 0.76,
     nearGateScale: 0.92,
     gateSpreadFar: 1.15,
@@ -250,8 +244,6 @@ const WORLD_LAYOUTS = {
 const ROAD_TEXTURE = {
   /** wear band peak alpha at the road edge, fading to 0 inward. */
   wearAlpha: 0.22,
-  /** grain tile size in px (bigger = softer speckle). */
-  grainSize: 170,
 };
 
 /** Motion tuning for the world layer (visual only — never gameplay). */
@@ -324,6 +316,18 @@ function projectRoadPoint(depth, lane = 0) {
   };
 }
 
+/** Project one of the three CSS lane anchors through the shared vanishing
+ * point. This preserves asymmetric layouts and lands exactly on the fox's
+ * lane at the collision plane instead of assuming 20/50/80 symmetry. */
+function projectLanePoint(depth, laneIndex) {
+  const p = projectRoadPoint(depth, 0);
+  const anchor = laneXFractions[laneIndex] ?? 0.5;
+  return {
+    ...p,
+    x: 0.5 + (anchor - 0.5) * p.scale,
+  };
+}
+
 const dom = {
   app: document.getElementById('app'),
   // error screen
@@ -359,7 +363,6 @@ const dom = {
   hudLives: document.getElementById('hud-lives'),
   btnPause: document.getElementById('btn-pause'),
   sentence: document.getElementById('sentence'),
-  answerDock: document.getElementById('answer-dock'),
   runner: document.getElementById('runner'),
   scene: document.querySelector('.scene'),
   gatesRoot: document.getElementById('gates'),
@@ -411,7 +414,6 @@ const dom = {
 };
 
 const gateEls = [...dom.gatesRoot.querySelectorAll('.answer-gate')];
-const answerChoiceEls = [...dom.answerDock.querySelectorAll('.answer-dock__choice')];
 const roadGuideEls = [...document.querySelectorAll('.road-guide')];
 
 /* ========================================================================
@@ -517,8 +519,6 @@ async function init() {
   // fast click can never enter gameplay before the complete cycle is ready.
   runFramesReady = preloadRunFrames();
   preloadGateArt(); // warm the 3 gate images once; reused from cache afterwards
-  // (the two scenery PNGs are plain <img> tags in #runner — the browser
-  // fetches and decodes them at page load, before the game screen shows)
   renderLevelList();
   showScreen('start');
   startLoop();
@@ -555,7 +555,6 @@ function bindEngineEvents() {
     logEvent('player:lane-changed', payload);
     renderPlayer(payload.to);
     highlightChosenGate(payload.to);
-    highlightAnswerChoice(payload.to);
     applyLaneLean(payload.from, payload.to);
   });
   engine.on('game:tick', () => {
@@ -591,7 +590,6 @@ function handleStateChanged({ to }) {
   // freezes the exact image + phase-driven shadow values.
   const running = to === GAME_STATES.PLAYING || to === GAME_STATES.FEEDBACK;
   dom.player.classList.toggle('is-running', running);
-  updateAnswerDockState(to);
   switch (to) {
     case GAME_STATES.READY:
       showScreen('start');
@@ -816,11 +814,8 @@ function renderQuestion(payload) {
   }
 
   renderLanes(payload.laneMap);
-  renderAnswerDock(payload.laneMap);
   renderPlayer(payload.playerLane);
   highlightChosenGate(payload.playerLane);
-  highlightAnswerChoice(payload.playerLane);
-  updateAnswerDockState(engine.state);
   hideFeedback();
   dom.player.classList.remove('player-correct', 'player-wrong');
   renderHUD();
@@ -851,35 +846,6 @@ function renderLanes(laneMap) {
   renderLaneGuides();
 }
 
-/** The dock mirrors the same randomized laneMap rendered by the road gates. */
-function renderAnswerDock(laneMap) {
-  answerChoiceEls.forEach((choice, lane) => {
-    const category = laneMap[lane];
-    const visuals = GATE_VISUALS[category];
-    if (!visuals) return;
-
-    choice.dataset.category = category;
-    choice.querySelector('.answer-dock__label').textContent = visuals.answerLabel;
-    choice.querySelector('.answer-dock__sublabel').textContent = visuals.answerSublabel;
-    choice.setAttribute('aria-label', visuals.aria);
-    choice.setAttribute('aria-pressed', 'false');
-    choice.classList.remove('is-selected', 'is-correct', 'is-wrong');
-  });
-}
-
-function updateAnswerDockState(state) {
-  const visible =
-    state === GAME_STATES.PLAYING ||
-    state === GAME_STATES.PAUSED ||
-    state === GAME_STATES.FEEDBACK;
-  const interactive = state === GAME_STATES.PLAYING;
-
-  dom.answerDock.classList.toggle('hidden', !visible);
-  answerChoiceEls.forEach((choice) => {
-    choice.disabled = !interactive;
-  });
-}
-
 function renderPlayer(lane) {
   dom.player.style.left = PLAYER_LANE_POSITIONS[lane];
   roadGuideEls.forEach((guide, index) => guide.classList.toggle('is-active', index === lane));
@@ -891,8 +857,7 @@ function renderLaneGuides() {
   const offset = sceneGeo.layout === 'mobile' ? 0.05 : sceneGeo.layout === 'tablet' ? 0.07 : 0.09;
   const depth = Math.min(0.94, world.gate.depth + offset);
   roadGuideEls.forEach((guide, lane) => {
-    const laneU = lane === 1 ? 0 : lane === 0 ? -1 : 1;
-    const p = projectRoadPoint(depth, laneU);
+    const p = projectLanePoint(depth, lane);
     const scale = Math.max(0.46, Math.min(0.82, p.scale * 1.45));
     guide.style.transform =
       `translate3d(${(p.x * world.W).toFixed(1)}px, ${(p.y * world.H).toFixed(1)}px, 0) ` +
@@ -935,14 +900,6 @@ function applyLaneLean(from, to) {
 
 function highlightChosenGate(lane) {
   gateEls.forEach((gate, index) => gate.classList.toggle('is-chosen', index === lane));
-}
-
-function highlightAnswerChoice(lane) {
-  answerChoiceEls.forEach((choice, index) => {
-    const selected = index === lane;
-    choice.classList.toggle('is-selected', selected);
-    choice.setAttribute('aria-pressed', String(selected));
-  });
 }
 
 /* ---- perspective: gateProgress (engine, normalized 0..1) → visual depth ---
@@ -1026,9 +983,9 @@ function stoneLaneU() {
 
 function buildRoadWorld() {
   if (world.built) return;
-  world.built = true;
   const layer = roadLayer();
   if (!layer) return;
+  world.built = true;
 
   const make = (cls) => {
     const el = document.createElement('div');
@@ -1054,7 +1011,7 @@ function buildRoadWorld() {
       world.dashes.push({
         el,
         line,
-        depth: ((i + (line ? 0.5 : 0)) / (maxPerLine * 2)) * 1.22,
+        depth: ((i + (line ? 0.5 : 0)) / maxPerLine) * world.cycle,
       });
     }
   }
@@ -1137,6 +1094,15 @@ function rebuildWorldGeometry() {
   world.laneFrac = world.laneHalf / world.nearHalf;
   world.pEase = layout.pEase;
 
+  // At depth 1, divide the road into three lanes and size every gate to the
+  // same safe share of one lane. Per-frame perspective then scales that base
+  // width with the road, keeping the outer gates inside the road edges.
+  const laneWidthAtCollision = (world.nearHalf * 2 * world.W) / 3;
+  dom.gatesRoot.style.setProperty(
+    '--gate-road-w',
+    `${(laneWidthAtCollision * (layout.gateLaneFill ?? 0.72)).toFixed(1)}px`,
+  );
+
   // Depth wrap: the ground line exits past the bottom edge (t units).
   const tExit = (WORLD_MOTION.yExit - world.yVp) / world.laneSpanY;
   world.cycle = Math.pow(tExit, 1 / world.pEase);
@@ -1157,13 +1123,21 @@ function rebuildWorldGeometry() {
     const idx = lineCount[d.line]++;
     const active = idx < perLine;
     d.el.style.display = active ? '' : 'none';
-    if (active) d.depth = ((idx + (d.line ? 0.5 : 0)) / (perLine * 2)) * 1.22;
+    if (active) {
+      d.depth = ((idx + (d.line ? 0.5 : 0)) / perLine) * world.cycle;
+    }
   }
+  const stoneCount = Math.max(1, layout.stones || 10);
   world.stones.forEach((s, i) => {
-    s.el.style.display = i < (layout.stones || 10) ? '' : 'none';
+    const active = i < stoneCount;
+    s.el.style.display = active ? '' : 'none';
+    if (active) s.depth = ((i + 0.35) / stoneCount) * world.cycle;
   });
+  const patchCount = Math.max(1, layout.patches || 0);
   world.patches.forEach((pa, i) => {
-    pa.el.style.display = i < (layout.patches || 0) ? '' : 'none';
+    const active = i < (layout.patches || 0);
+    pa.el.style.display = active ? '' : 'none';
+    if (active) pa.depth = ((i + 0.7) / patchCount) * world.cycle;
   });
   world.tufts.forEach((t, i) => {
     t.el.style.display = i < (layout.tufts || 6) ? '' : 'none';
@@ -1270,14 +1244,15 @@ function drawCodedRoad(layout) {
   const roadTracks = document.getElementById('road-tracks');
   if (roadTracks) {
     const TRACK_HALF = 0.17; // lane units
-    [-1, 0, 1].forEach((laneU, idx) => {
+    [0, 1, 2].forEach((laneIndex, idx) => {
       const left = [];
       const right = [];
       for (let s = 0; s <= 8; s += 1) {
         const t = (tExit * s) / 8;
         const half = world.farHalf + (world.nearHalf - world.farHalf) * t;
         const y = ((world.yVp + t * world.laneSpanY) * 100).toFixed(2);
-        const centre = (0.5 + laneU * world.laneFrac * half) * 100;
+        const scale = half / world.nearHalf;
+        const centre = (0.5 + (laneXFractions[laneIndex] - 0.5) * scale) * 100;
         const trackHalf = TRACK_HALF * world.laneFrac * half * 100;
         left.push(`${(centre - trackHalf).toFixed(2)}% ${y}%`);
         right.push(`${(centre + trackHalf).toFixed(2)}% ${y}%`);
@@ -1463,12 +1438,9 @@ function renderGates() {
   // first visible frame rather than while #screen-game is display:none.
   if (gateLabelBaseStale) refreshGateLabelBase();
   const { farOpacity, minLabelPx, maxLabelBoost } = RUNNER_GEO;
-  // Layouts may lift the readability floor (phone boards must read from
-  // spawn); the true perspective curve still owns the near-camera size.
-  const activeLayout = WORLD_LAYOUTS[sceneGeo.layout] ?? WORLD_LAYOUTS.desktop;
-  const floorFar = activeLayout.farGateScale ?? RUNNER_GEO.floorFar;
-  const floorNear = activeLayout.nearGateScale ?? RUNNER_GEO.floorNear;
-  const spreadFar = activeLayout.gateSpreadFar ?? 1;
+  const layout = WORLD_LAYOUTS[sceneGeo.layout] ?? WORLD_LAYOUTS.desktop;
+  const floorFar = layout.farGateScale ?? RUNNER_GEO.floorFar;
+  const floorNear = layout.nearGateScale ?? RUNNER_GEO.floorNear;
   const D = world.gate.depth;
   const t = easeDepth(D);
   // Perspective-true gate size: the road's own width ratio at this depth,
@@ -1476,6 +1448,7 @@ function renderGates() {
   const roadScale = (world.farHalf + (world.nearHalf - world.farHalf) * t) / world.nearHalf;
   const floor = floorFar + (floorNear - floorFar) * Math.min(t, 1);
   const scale = Math.max(roadScale, floor);
+  const spread = (layout.gateSpreadFar ?? 1) + (1 - (layout.gateSpreadFar ?? 1)) * Math.min(t, 1);
   // Fade in from the horizon on spawn; once past the collision plane the
   // gate fades quickly (t 1.02→1.14) so the pass-through never reads as a
   // giant wall flashing across — or past — the screen edges.
@@ -1487,13 +1460,12 @@ function renderGates() {
     // Same projection as every road object: squeezed to the vanishing point
     // at spawn, landing exactly on the CSS lane anchors (--lane-x-*) at the
     // collision moment, then spreading past the camera during pass-through.
-    const laneU = lane === 1 ? 0 : lane === 0 ? -1 : 1;
-    const spread = 1 + (spreadFar - 1) * (1 - Math.min(t, 1));
-    const p = projectRoadPoint(D, laneU * spread);
+    const p = projectLanePoint(D, lane);
+    const gateX = 0.5 + (p.x - 0.5) * spread;
     const el = gateEls[lane];
     // (x, y) is the gate's ground point: bottom-centered, standing on the road.
     el.style.transform =
-      `translate3d(${(p.x * world.W).toFixed(1)}px, ${(p.y * world.H).toFixed(1)}px, 0) ` +
+      `translate3d(${(gateX * world.W).toFixed(1)}px, ${(p.y * world.H).toFixed(1)}px, 0) ` +
       `translate(-50%, -100%) scale(${scale.toFixed(4)})`;
     el.style.opacity = opacity.toFixed(3);
     setLayerZ(el, D); // always below the player (z 5)
@@ -1534,11 +1506,6 @@ function renderFeedback(result) {
   });
   const chosenGate = gateEls[result.selectedLane];
   if (chosenGate && !result.isCorrect) chosenGate.classList.add('is-wrong');
-  answerChoiceEls.forEach((choice) => {
-    if (choice.dataset.category === result.correctCategory) choice.classList.add('is-correct');
-  });
-  const chosenAnswer = answerChoiceEls[result.selectedLane];
-  if (chosenAnswer && !result.isCorrect) chosenAnswer.classList.add('is-wrong');
   dom.player.classList.toggle('player-correct', result.isCorrect);
   dom.player.classList.toggle('player-wrong', !result.isCorrect);
 
@@ -1798,13 +1765,6 @@ function bindUiEvents() {
     });
   }
 
-  // The dock is another lane-control surface; the engine still resolves answers.
-  for (const choice of answerChoiceEls) {
-    choice.addEventListener('click', () => {
-      movePlayerToLane(Number(choice.dataset.lane));
-    });
-  }
-
   // Tap anywhere on the road to move to that lane (mobile-friendly).
   dom.runner.addEventListener('pointerdown', (event) => {
     const rect = dom.runner.getBoundingClientRect();
@@ -1910,14 +1870,6 @@ function handleKeydown(event) {
   }
   if (!engine || currentScreen === 'start' || currentScreen === 'error') return;
   const state = engine.state;
-  const focusedAnswer = event.target.closest?.('.answer-dock__choice');
-  if (focusedAnswer && (event.key === ' ' || event.key === 'Enter')) {
-    if (state === GAME_STATES.PLAYING) {
-      event.preventDefault();
-      movePlayerToLane(Number(focusedAnswer.dataset.lane));
-    }
-    return;
-  }
   let handled = true;
 
   switch (event.key) {
@@ -2171,7 +2123,8 @@ function showStablePlayerPose() {
   ) ?? runtimeRunFrames[0] ?? RUN_PHASES[STABLE_RUN_FRAME_INDEX];
   runFrameIndex = Math.max(0, runtimeRunFrames.indexOf(stable));
   runFrameAccumulator = 0;
-  paintRunFrame(stable, STABLE_RUN_FRAME_INDEX);
+  const sourceIndex = RUN_PHASES.findIndex((phase) => phase.id === stable.id);
+  paintRunFrame(stable, sourceIndex >= 0 ? sourceIndex : STABLE_RUN_FRAME_INDEX);
 }
 
 function handleReducedMotionChange(event) {
@@ -2206,6 +2159,7 @@ function loop(now) {
   try {
     if (!engine) return;
 
+    const visualDeltaMs = Math.min(deltaMs, 40);
     if (engine.state === GAME_STATES.PLAYING) {
       engine.update(deltaMs); // engine clamps huge deltas (tab switches) itself
       // update() can auto-resolve the question (PLAYING → FEEDBACK) and the
@@ -2213,14 +2167,17 @@ function loop(now) {
       // the gates would flash back to the horizon on timed resolutions.
       if (engine.state === GAME_STATES.PLAYING) {
         gateVisualProgress = engine.gateProgress;
-        updatePlayerAnimation(deltaMs); // same loop, same delta — presentation only
+        updatePlayerAnimation(visualDeltaMs);
+      } else if (engine.state === GAME_STATES.FEEDBACK) {
+        gateVisualProgress = 1;
+        world.gate.depth = 1;
       }
     }
     const state = engine.state;
 
     if (currentScreen === 'game') {
       // Delta is clamped so a background tab can never teleport the road.
-      const dt = Math.min(deltaMs, 40) / 1000;
+      const dt = visualDeltaMs / 1000;
 
       // Gate pass-through first: it owns the feedback clock (feedbackT).
       updateGateVisual(dt, state);
@@ -2238,12 +2195,13 @@ function loop(now) {
         // The fox keeps trotting through the feedback moment, matched to the
         // slow world crawl. Keep the run clock below normal speed; the separate
         // one-shot reaction wrapper carries the celebratory/hesitation accent.
-        const feedbackRunRate = Math.min(0.58, 0.28 + Math.max(rate, 0.15) * 0.3);
+        const feedbackRunRate = feedbackRunRateForWorldRate(rate);
         updatePlayerAnimation(Math.min(deltaMs, 40) * feedbackRunRate);
       }
 
       updateWorldMotion(dt, rate, state === GAME_STATES.PLAYING ? 1 : Math.max(rate, 0.15) * 1.6);
       renderGates();
+      renderLaneGuides();
       updateDebugBar(now);
     }
   } catch (error) {

@@ -115,6 +115,12 @@ export function runFrameDurationForSpeed(
   return RUN_FRAME_MS.slowest - t * (RUN_FRAME_MS.slowest - RUN_FRAME_MS.fastest);
 }
 
+/** Keep feedback motion deliberately slower than the live running cadence. */
+export function feedbackRunRateForWorldRate(worldRate) {
+  const rate = clamp(Number(worldRate) || 0, 0.15, 1);
+  return Math.min(0.58, 0.28 + rate * 0.3);
+}
+
 /**
  * Advance an accumulated frame clock. Large deltas are clamped so returning
  * from a background tab never fast-forwards through the gait.

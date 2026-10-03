@@ -172,10 +172,10 @@
              world. The interactive road, moving details, gates and player stay
              independent HTML/CSS layers above it. -->
         <div class="scene" aria-hidden="true"></div>
-        <!-- Fully code-built perspective road: a soft grass shoulder
-             (blurred, wide) under a warm sand trapezoid. Both shapes are
-             clip-path polygons drawn by js/game.js through the SAME
-             projection every moving object uses — no road photo anywhere. -->
+        <!-- A transparent, code-projected road finish aligns the moving lane
+             marks, stones, dust and gates with the road painted into the
+             responsive scenery plate. Every moving object shares one
+             projection model in js/game.js. -->
         <div id="road-edge" class="road-edge" aria-hidden="true"></div>
         <div id="road-surface" class="road-surface" aria-hidden="true"></div>
         <!-- Edge-wear bands: soft darkening along the sand's slanted sides
@@ -237,10 +237,14 @@
         <div id="score-pop" class="score-pop" aria-hidden="true"></div>
 
         <div class="world-sign world-sign--left" aria-hidden="true">
-          <span>Small Steps</span><span>Brighter English</span>
+          <img src="assets/environment/sign-left.webp" alt="" width="768" height="632"
+               draggable="false" decoding="async">
+          <span class="world-sign__copy"><span>Small Steps</span><span>Brighter English</span></span>
         </div>
         <div class="world-sign world-sign--right" aria-hidden="true">
-          <span>Better Words</span><span>A Brighter You</span>
+          <img src="assets/environment/sign-right.webp" alt="" width="768" height="693"
+               draggable="false" decoding="async">
+          <span class="world-sign__copy"><span>Better Words</span><span>A Brighter You</span></span>
         </div>
       </div>
 
@@ -326,24 +330,6 @@
         </div>
       </div>
 
-      <div id="answer-dock" class="answer-dock hidden" aria-label="Answer choices">
-        <button class="answer-dock__choice" type="button" data-lane="0"
-                aria-label="Answer choice for the left lane" aria-pressed="false" disabled>
-          <span class="answer-dock__label"></span>
-          <span class="answer-dock__sublabel"></span>
-        </button>
-        <button class="answer-dock__choice" type="button" data-lane="1"
-                aria-label="Answer choice for the middle lane" aria-pressed="false" disabled>
-          <span class="answer-dock__label"></span>
-          <span class="answer-dock__sublabel"></span>
-        </button>
-        <button class="answer-dock__choice" type="button" data-lane="2"
-                aria-label="Answer choice for the right lane" aria-pressed="false" disabled>
-          <span class="answer-dock__label"></span>
-          <span class="answer-dock__sublabel"></span>
-        </button>
-      </div>
-
       <aside class="tip-card" aria-label="Grammar tip">
         <span class="tip-card__icon" aria-hidden="true">
           <svg viewBox="0 0 64 64" fill="none">
@@ -357,19 +343,8 @@
 
       <aside class="owl-help" aria-label="Helpful hint">
         <div class="owl-help__mascot" aria-hidden="true">
-          <svg viewBox="0 0 132 142" fill="none">
-            <ellipse cx="66" cy="132" rx="42" ry="8" fill="#754724" opacity=".25"/>
-            <path d="M29 61c0-31 16-46 37-46s37 15 37 46v35c0 22-16 35-37 35S29 118 29 96z" fill="#9a542f"/>
-            <path d="m31 63-17 24 23 9M101 63l17 24-23 9" fill="#7f4329"/>
-            <path d="M43 91c7 9 15 13 23 13s16-4 23-13v24c-7 10-15 15-23 15s-16-5-23-15z" fill="#f8e3c2"/>
-            <circle cx="49" cy="59" r="24" fill="#f5d9ae"/>
-            <circle cx="83" cy="59" r="24" fill="#f5d9ae"/>
-            <circle cx="49" cy="59" r="12" fill="#fff"/><circle cx="83" cy="59" r="12" fill="#fff"/>
-            <circle cx="51" cy="61" r="6" fill="#15234f"/><circle cx="81" cy="61" r="6" fill="#15234f"/>
-            <path d="m66 68-9 8 9 6 9-6z" fill="#f5a623"/>
-            <path d="M23 27h86L66 2z" fill="#24356f"/><path d="M38 28h57v12H38z" fill="#304b91"/>
-            <path d="M103 25v25" stroke="#f4b42f" stroke-width="3"/><circle cx="103" cy="52" r="4" fill="#f4b42f"/>
-          </svg>
+          <img src="assets/ui/owl-helper.webp" alt="" width="605" height="640"
+               draggable="false" decoding="async">
         </div>
         <div class="owl-help__bubble">
           <span class="owl-help__bulb" aria-hidden="true">💡</span>

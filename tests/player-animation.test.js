@@ -7,6 +7,7 @@ import {
   RUN_PHASES,
   STABLE_RUN_FRAME_INDEX,
   advanceRunClock,
+  feedbackRunRateForWorldRate,
   runFrameDurationForSpeed,
 } from '../js/player-animation.js';
 
@@ -58,6 +59,12 @@ test('speed mapping is gently clamped to 95ms slow and 75ms fast', () => {
   assert.equal(runFrameDurationForSpeed(-10, 0.44, 0.62), 95);
   assert.equal(runFrameDurationForSpeed(10, 0.44, 0.62), 75);
   assert.equal(runFrameDurationForSpeed(NaN, 0.44, 0.62), 88);
+});
+
+test('feedback always slows the gait instead of accelerating it', () => {
+  assert.equal(feedbackRunRateForWorldRate(1), 0.58);
+  assert.ok(Math.abs(feedbackRunRateForWorldRate(0) - 0.325) < 1e-12);
+  assert.ok(feedbackRunRateForWorldRate(0.4) < 1);
 });
 
 test('accumulated delta advances multiple frames and wraps 8 → 1 seamlessly', () => {

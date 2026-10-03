@@ -88,12 +88,13 @@ runtime frames retain one scale and canvas while encoding the mirrored
 push-off → air → landing → compression gait. `assets/gates/` holds the approved
 gate artwork
 (`gate-blue/green/purple.webp`, PNG originals in `source/`).
-`assets/backgrounds/` holds the approved environment paintings — one per
-device class (`road-desktop.webp` 1672×941, `road-tablet.webp` 1448×1086,
-`road-mobile.webp` 941×1672, PNG originals in `source/`). The remaining
-folders are placeholders for the upcoming production pass: scenery props in
-`environment/`, HUD icons (heart, star, flame) in `ui/`, and music plus
-effect sounds in `audio/`.
+`assets/backgrounds/` holds the responsive environment paintings:
+`road-desktop.webp`, `road-tablet.webp`, and the cleaned portrait plate
+`road-mobile-clean-v2.webp` (with its PNG source). Decorative roadside signs
+live in `assets/environment/`, and the desktop helper owl lives in
+`assets/ui/`; their high-resolution PNG sources are kept beside them in
+`source/` folders. HUD symbols remain lightweight inline SVG so all live
+numbers and labels stay accessible HTML.
 
 ### Fox run system (finalized, locked)
 
@@ -111,19 +112,17 @@ animation bug is found.
 
 ### Environment / scene system (finalized, locked)
 
-The road and scenery exist only as the approved paintings; lane logic,
-collision and timing never live in the artwork or CSS. One painting per
-device class is selected by the scene breakpoints (**≤680px phone, ≤1200px
-tablet, otherwise desktop**) — the same media queries retune lane anchors,
-gate sizing and horizon, so artwork and gameplay geometry cannot drift
-apart. Alignment is guaranteed by construction: `background-position:
-50% var(--scene-bg-pos-y)` pins each painting's horizon row to the same
-fraction of the game world for any `cover` crop, and gates spawn exactly at
-that fraction (`--scene-horizon-y`), following the painted lane stripes via
-measured per-layout profiles (`GATE_X_PROFILES` in `js/game.js`). The
-engine's `gateProgress` and collision timing are untouched — only the
-visual mapping is responsive. If an artwork fails to load, a CSS sky
-fallback keeps the game playable.
+One scenic plate is selected per device class (**≤680px phone, 681–1100px
+tablet, otherwise desktop**). Above it, a transparent code-built road finish
+adds moving perspective dashes, sparse stones, worn patches and dust without
+duplicating the scenery. `projectRoadPoint()` and `projectLanePoint()` provide
+the shared geometry for road details, lane arrows and gates; CSS custom
+properties supply each layout's horizon, collision line and lane anchors.
+The engine's `gateProgress` and collision timing remain untouched while the
+visual mapping applies layout-specific gate scale/spread floors for early
+legibility. Pooled DOM objects and the existing single animation frame loop
+keep motion lightweight, and a CSS sky gradient remains as the artwork
+fallback.
 
 ## Controls
 
