@@ -32,6 +32,14 @@
   min-height: 100%; /* short screens grow the hero instead of shrinking UI */
 }
 
+/* .app's 480px min-height guards the gameplay world on tiny windows; the
+ * start screen needs no such floor (it centers its content and scrolls
+ * internally if truly cramped), so it lifts the guard while showing.
+ * Toggled by showScreen() in js/game.js. */
+.app.showing-start {
+  min-height: 0;
+}
+
 /* ---------- approved backdrop + readability shade ----------
  * Both layers are first in the DOM with z-index 0; .hero__top (z 2) and
  * .hero__body (z 1) paint above them. No negative z-index anywhere — it can
@@ -993,6 +1001,11 @@
 
 /* ---- short landscape viewports: compress rhythm, keep everything ---- */
 @media (max-height: 520px) and (min-width: 681px) {
+  .hero__top {
+    padding-top: 8px;
+    padding-bottom: 4px;
+  }
+
   .hero__headline {
     font-size: clamp(1.7rem, 4.2vw, 2.4rem);
   }
@@ -1001,12 +1014,34 @@
     display: none;
   }
 
+  /* chips step aside so the CTA cluster fits beside the fox */
+  .hero__chips {
+    display: none;
+  }
+
   .hero__fox {
-    height: clamp(220px, 46vh, 300px);
+    height: clamp(200px, 46vh, 280px);
+    margin-bottom: 10px;
   }
 
   .hero__actions {
     gap: 8px;
+    margin-top: 10px;
+  }
+
+  /* content-sized rows: a stretched 1fr row plus the row-spanning fox can
+   * inflate the grid's intrinsic height and push past a 360px viewport */
+  .hero__body {
+    grid-template-rows: auto auto;
+  }
+
+  .hero__fox {
+    align-self: end;
+  }
+
+  .mode-btn {
+    min-height: 36px;
+    padding: 0 16px;
   }
 }
 

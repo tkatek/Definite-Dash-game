@@ -170,15 +170,15 @@
       <div id="runner" class="runner">
         <!-- Far environment: CSS sky + meadow + distant hills (no image). -->
         <div class="scene" aria-hidden="true"></div>
-        <!-- Approved side scenery, framing the road: transparent PNGs
-             (left = river / stone bridge / waterfall, right = windmill /
-             village / hay bales). Purely static; sized per device class by
-             js/game.js. Always UNDER the road surface, so they can never
-             cover the lanes, fox or gates. -->
+        <!-- Approved side scenery, framing the road (left = river / stone
+             bridge / waterfall, right = windmill / village / hay bales).
+             Purely static; each device class downloads ONLY its own WebP pair
+             (src chosen by js/game.js via SCENERY_ASSETS). Always UNDER the
+             road surface, so it can never cover the lanes, fox or gates. -->
         <img id="scenery-left" class="scenery scenery-left" alt="" draggable="false"
-             decoding="async" src="assets/environment/scenery-left.png" aria-hidden="true">
+             decoding="async" aria-hidden="true">
         <img id="scenery-right" class="scenery scenery-right" alt="" draggable="false"
-             decoding="async" src="assets/environment/scenery-right.png" aria-hidden="true">
+             decoding="async" aria-hidden="true">
         <!-- Fully code-built perspective road: a soft grass shoulder
              (blurred, wide) under a warm sand trapezoid. Both shapes are
              clip-path polygons drawn by js/game.js through the SAME

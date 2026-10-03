@@ -194,7 +194,9 @@ const WORLD_LAYOUTS = {
     // Landmark-centered crops measured from the approved artwork:
     // left = waterfall (center-right, upper) + stone bridge; right =
     // windmill (center-left) + hay bale.
-    sceneryPos: { left: '62% 28%', right: '45% 38%' },
+    // crop anchors for the tall phone art (941×1672): left keeps the
+    // waterfall + stone bridge + river, right keeps windmill + hay + village
+    sceneryPos: { left: '50% 25%', right: '52% 35%' },
     // Reference: big readable boards for most of the approach, planted on
     // the lane at arrival — never tiny at spawn, never gigantic up close.
     farGateScale: 0.52,
@@ -207,6 +209,29 @@ const WORLD_LAYOUTS = {
     tufts: 6,
     wearW: 0.14,
     grain: 0.45,
+  },
+};
+
+/**
+ * Approved side-scenery artwork per layout — one dedicated pair per device
+ * class (sources preserved in assets/scenery/source/*.png; runtime is the
+ * alpha-safe WebP re-encode). Only the ACTIVE layout's pair is ever given a
+ * src, so a phone never downloads the desktop art and vice versa; swapping
+ * the src on breakpoint change keeps the old bitmap on screen until the new
+ * one decodes (no flash).
+ */
+const SCENERY_ASSETS = {
+  desktop: {
+    left: 'assets/scenery/desktop-left.webp',
+    right: 'assets/scenery/desktop-right.webp',
+  },
+  tablet: {
+    left: 'assets/scenery/tablet-left.webp',
+    right: 'assets/scenery/tablet-right.webp',
+  },
+  mobile: {
+    left: 'assets/scenery/mobile-left.webp',
+    right: 'assets/scenery/mobile-right.webp',
   },
 };
 
@@ -598,6 +623,9 @@ function showScreen(name) {
   for (const [key, element] of Object.entries(screens)) {
     element.classList.toggle('hidden', key !== name);
   }
+  // The start screen manages its own height (css/start.css relaxes .app's
+  // 480px gameplay guard while showing, so short landscape phones fit).
+  dom.app.classList.toggle('showing-start', name === 'start');
   if (name === 'start') {
     renderLevelList();
   }
@@ -977,6 +1005,11 @@ function buildRoadWorld() {
  * game screen shows and on resize.
  */
 function rebuildWorldGeometry() {
+  // Re-read the CSS scene variables first: a resize may have crossed a
+  // breakpoint while the game screen was hidden (no live runner rect), and
+  // the scenery pair must follow the CURRENT layout either way.
+  readSceneGeo();
+  applySceneryAssets(sceneGeo.layout);
   const layout = WORLD_LAYOUTS[sceneGeo.layout] ?? WORLD_LAYOUTS.desktop;
   const rect = dom.runner.getBoundingClientRect();
   if (rect.width < 40 || rect.height < 40) return; // hidden screen — try again when shown
@@ -1143,6 +1176,22 @@ function drawCodedRoad(layout) {
         `polygon(${left.join(', ')}, ${right.reverse().join(', ')})`
       );
     });
+  }
+}
+
+/**
+ * Point the two scenery <img> tags at the active layout's pair (see
+ * SCENERY_ASSETS). Idempotent: nothing happens while the layout key is
+ * unchanged, so resizes within one breakpoint never touch the network.
+ */
+function applySceneryAssets(layoutKey) {
+  const pair = SCENERY_ASSETS[layoutKey] ?? SCENERY_ASSETS.desktop;
+  for (const side of ['left', 'right']) {
+    const el = document.getElementById(`scenery-${side}`);
+    if (el && el.dataset.layout !== layoutKey) {
+      el.dataset.layout = layoutKey;
+      el.src = pair[side];
+    }
   }
 }
 
@@ -1718,6 +1767,7 @@ function bindUiEvents() {
   // -- responsive geometry: lanes, horizon + label metrics follow the scene
   //    breakpoints in CSS (680px / 1100px); rotation/resize re-reads them --
   readSceneGeo();
+  applySceneryAssets(sceneGeo.layout); // start preloading THIS device's pair now
   buildRoadWorld(); // pooled road objects exist before the first level
   rebuildWorldGeometry(); // no-op while the game screen is hidden
   gateLabelBaseStale = true; // re-measured on the next visible frame
@@ -1726,6 +1776,7 @@ function bindUiEvents() {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
       readSceneGeo();
+      applySceneryAssets(sceneGeo.layout); // breakpoint crossed → swap the pair
       rebuildWorldGeometry(); // road polygons, scenery + pooled sizes follow the new layout
       gateLabelBaseStale = true;
     }, 120);
