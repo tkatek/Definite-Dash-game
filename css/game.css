@@ -820,8 +820,8 @@ body.debug .answer-gate .gate-key {
   will-change: transform;
 }
 
-.player-lean.lean-right { transform: rotate(3deg); }
-.player-lean.lean-left { transform: rotate(-3deg); }
+.player-lean.lean-right { transform: rotate(2.5deg); }
+.player-lean.lean-left { transform: rotate(-2.5deg); }
 .player-lean.is-dragging {
   transform: rotate(var(--player-drag-lean, 0deg));
   transition-duration: 55ms;
@@ -1943,7 +1943,8 @@ body.debug .answer-gate .gate-key {
   .player-lean.is-dragging { transition: none; }
 
   .player-lean.lean-left,
-  .player-lean.lean-right { transform: none; }
+  .player-lean.lean-right,
+  .player-lean.is-dragging { transform: none; }
 
   .player.player-correct .player-reaction,
   .player.player-wrong .player-reaction,

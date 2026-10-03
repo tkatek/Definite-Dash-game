@@ -111,9 +111,21 @@ function answerOnce(engine, clock, { correct = true, advanceMs = SLOW_MS } = {})
   const category = correct
     ? correctCategoryFor(snap.question.id)
     : wrongCategoryFor(snap.question.id);
-  engine.chooseCategory(category);
   clock.advance(advanceMs);
+  engine.chooseCategory(category);
   return engine.submitCurrentLane();
+}
+
+/** Advance both the injected clock and the clamped engine gate to collision. */
+function runGateToCollision(engine, clock, stepMs = 100) {
+  let guard = 0;
+  while (engine.state === GAME_STATES.PLAYING && guard < 300) {
+    clock.advance(stepMs);
+    engine.update(stepMs);
+    guard += 1;
+  }
+  assert.equal(engine.state, GAME_STATES.FEEDBACK, 'gate should resolve within the guard');
+  return engine.getSnapshot().lastResult;
 }
 
 /** Play a whole level; pattern true/false per question (default all correct). */
@@ -997,6 +1009,62 @@ describe('answer resolution and scoring', () => {
     const expectedSpeed = Math.round(SC.fastBonusMax * (1 - FAST_MS / SC.fastBonusWindowMs));
     assert.equal(result.speedBonus, expectedSpeed);
     assert.equal(result.pointsGained, Math.round((SC.baseCorrect + expectedSpeed + SC.perfectQuestionBonus) * 1));
+  });
+
+  test('an early lane decision earns reachable bonuses when the gate later resolves it', () => {
+    const { engine, clock } = makeEngine();
+    engine.startLevel(1);
+    clock.advance(FAST_MS);
+    engine.chooseCategory(correctCategoryFor(engine.getSnapshot().question.id));
+    const result = runGateToCollision(engine, clock);
+    assert.equal(result.automatic, true);
+    assert.equal(result.responseMs, FAST_MS);
+    assert.equal(result.perfectBonus, SC.perfectQuestionBonus);
+    assert.ok(result.speedBonus > 0);
+  });
+
+  test('a lucky untouched center lane earns no speed or perfect bonus at collision', () => {
+    const { engine, clock } = makeEngine({ rng: constantRng(0.6) });
+    engine.startLevel(1);
+    const snap = engine.getSnapshot();
+    assert.equal(snap.laneMap[START_LANE], correctCategoryFor(snap.question.id));
+    const result = runGateToCollision(engine, clock);
+    assert.equal(result.isCorrect, true);
+    assert.equal(result.speedBonus, 0);
+    assert.equal(result.perfectBonus, 0);
+    assert.ok(result.responseMs > SC.fastBonusWindowMs);
+  });
+
+  test('a same-lane answer tap records an intentional decision', () => {
+    const { engine, clock } = makeEngine({ rng: constantRng(0.6) });
+    engine.startLevel(1);
+    const snap = engine.getSnapshot();
+    const category = snap.laneMap[START_LANE];
+    assert.equal(category, correctCategoryFor(snap.question.id));
+    clock.advance(900);
+    assert.equal(engine.chooseCategory(category), false);
+    const result = runGateToCollision(engine, clock);
+    assert.equal(result.responseMs, 900);
+    assert.equal(result.perfectBonus, SC.perfectQuestionBonus);
+  });
+
+  test('collision scoring follows the final lane decision time and resets per question', () => {
+    const { engine, clock } = makeEngine();
+    engine.startLevel(1);
+    const first = engine.getSnapshot().question.id;
+    clock.advance(400);
+    engine.chooseCategory(correctCategoryFor(first));
+    clock.advance(900);
+    engine.chooseCategory(wrongCategoryFor(first));
+    clock.advance(1700);
+    engine.chooseCategory(correctCategoryFor(first));
+    const firstResult = runGateToCollision(engine, clock);
+    assert.equal(firstResult.responseMs, 3000);
+
+    engine.continueAfterFeedback();
+    const secondResult = runGateToCollision(engine, clock);
+    assert.ok(secondResult.responseMs > SC.fastBonusWindowMs);
+    assert.equal(secondResult.speedBonus, 0);
   });
 
   test('fast answers outscore slow answers', () => {
@@ -1950,15 +2018,15 @@ describe('pause and resume', () => {
     assert.equal(events[0].levelId, 1);
   });
 
-  test('pause is only valid during PLAYING', () => {
+  test('pause is valid during PLAYING or FEEDBACK and rejects other states', () => {
     const { engine, clock } = makeEngine();
     assert.throws(() => engine.pause(), /READY/);
     engine.startLevel(1);
     answerOnce(engine, clock);
-    assert.throws(() => engine.pause(), /FEEDBACK/);
-    engine.continueAfterFeedback();
     engine.pause();
     assert.throws(() => engine.pause(), /PAUSED/); // double pause
+    engine.resume();
+    assert.equal(engine.state, GAME_STATES.FEEDBACK);
   });
 
   test('resume is only valid during PAUSED', () => {
@@ -1991,15 +2059,55 @@ describe('pause and resume', () => {
   test('time spent paused does not count as response time', () => {
     const { engine, clock } = makeEngine();
     engine.startLevel(1);
-    engine.chooseCategory(correctCategoryFor(engine.getSnapshot().question.id));
     clock.advance(2000);
     engine.pause();
     clock.advance(60000); // long pause menu visit
     engine.resume();
     clock.advance(1000);
+    engine.chooseCategory(correctCategoryFor(engine.getSnapshot().question.id));
     const result = engine.submitCurrentLane();
     assert.equal(result.responseMs, 3000); // 2000 + 1000, not 63000
     assert.equal(result.speedBonus, Math.round(SC.fastBonusMax * (1 - 3000 / SC.fastBonusWindowMs)));
+  });
+
+  test('feedback pause resumes to FEEDBACK without changing the resolved answer', () => {
+    const { engine, clock } = makeEngine();
+    const transitions = [];
+    const pauses = [];
+    const resumes = [];
+    engine.on('state:changed', ({ from, to }) => transitions.push(`${from}>${to}`));
+    engine.on('game:paused', (payload) => pauses.push(payload));
+    engine.on('game:resumed', (payload) => resumes.push(payload));
+    engine.startLevel(1);
+    const result = answerOnce(engine, clock, { advanceMs: 1200 });
+    const before = engine.getSnapshot();
+    engine.pause();
+    clock.advance(45000);
+    engine.update(1000);
+    assert.equal(engine.state, GAME_STATES.PAUSED);
+    assert.throws(() => engine.continueAfterFeedback(), /PAUSED/);
+    engine.resume();
+    const after = engine.getSnapshot();
+    assert.equal(engine.state, GAME_STATES.FEEDBACK);
+    assert.deepEqual(after.lastResult, result);
+    assert.equal(after.session.questionIndex, before.session.questionIndex);
+    assert.equal(pauses[0].fromState, GAME_STATES.FEEDBACK);
+    assert.equal(resumes[0].toState, GAME_STATES.FEEDBACK);
+    assert.ok(transitions.includes('FEEDBACK>PAUSED'));
+    assert.ok(transitions.includes('PAUSED>FEEDBACK'));
+  });
+
+  test('feedback pause time is excluded from final level duration', () => {
+    const data = cloneData();
+    data.levels[0].questionCount = 1;
+    const { engine, clock } = makeEngine({ data });
+    engine.startLevel(1);
+    answerOnce(engine, clock, { advanceMs: 1200 });
+    engine.pause();
+    clock.advance(60000);
+    engine.resume();
+    const { summary } = engine.continueAfterFeedback();
+    assert.equal(summary.durationMs, 1200);
   });
 
   test('restarting from PAUSED resets the run cleanly', () => {
@@ -2210,8 +2318,8 @@ describe('determinism and dependency injection', () => {
     const clock = createClock(5000);
     const { engine } = makeEngine({ clock });
     engine.startLevel(1);
-    engine.chooseCategory(correctCategoryFor(engine.getSnapshot().question.id));
     clock.advance(800);
+    engine.chooseCategory(correctCategoryFor(engine.getSnapshot().question.id));
     const result = engine.submitCurrentLane();
     assert.equal(result.responseMs, 800);
     const expectedSpeed = Math.round(SC.fastBonusMax * (1 - 800 / SC.fastBonusWindowMs));

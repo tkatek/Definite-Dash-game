@@ -14,7 +14,6 @@ import {
   STABLE_RUN_FRAME_INDEX,
   advanceRunClock,
   feedbackRunRateForWorldRate,
-  runFrameDurationForSpeed,
 } from './player-animation.js';
 
 /* ========================================================================
@@ -31,6 +30,12 @@ const DEBUG = false;
 const DATA_URL = 'data/game-data.json';
 const CORRECT_AUTO_CONTINUE_MS = 850;
 const CORRECT_RESUME_AUTO_CONTINUE_MS = 600;
+// One calm, device-independent cadence. Road/gate pacing must not accelerate
+// the sprite clock or make the fox look increasingly frantic.
+const RUN_FRAME_DURATION_MS = 95;
+// Advance gameplay and every PLAYING motion cue together. A 2x pace gives
+// Level 1 an approximately 10-second approach without changing engine rules.
+const PLAYING_PACE = 2;
 
 /* ------------------------------------------------------------------------
  * Gate visual system — the ONLY place category → gate appearance is mapped.
@@ -107,18 +112,13 @@ const RULE_HINTS = {
 /**
  * Runner geometry — visual constants only. ROAD_LAYOUTS owns every projected
  * ground value; CSS receives the resulting lane/collision variables so the
- * fox and road agree. Engine progress and collision timing never change.
+ * fox and road agree. Engine rules and collision thresholds never change.
  */
 const RUNNER_GEO = {
-  /**
-   * Logical progress remains engine-owned. This exponent maps it to a visual
-   * journey that lingers near the horizon, then accelerates toward the fox
-   * without changing the collision frame.
-   */
-  gateProgressPower: 1.6,
   gateSpacingFactor: 0.84,
+  gateDecisionSpacingFactor: 1,
   gateSlotFill: 0.9,
-  gateSizeBoost: 1.15,
+  gateSizeBoost: 1.085,
   gateSizeBoostStart: 0.02,
   gateSizeBoostEnd: 0.32,
   minGateScale: 0.2,
@@ -151,7 +151,7 @@ const RUNNER_GEO = {
  * with `if (depth ≥ 1) depth -= 1`,
  * which keeps their spacing perfectly even forever while the t-easing makes
  * them creep near the horizon and rush past the camera. Gates ride the SAME
- * projection. Engine progress is visually eased into projected depth during
+ * projection. Engine progress maps linearly to projected depth during
  * PLAYING, still reaching the collision plane on the exact resolve frame,
  * then passing the fox instead of hitting it.
  *
@@ -169,11 +169,12 @@ const RUNNER_GEO = {
  *                       and beyond extrapolate the same line)
  *   perspectivePower    perspective easing exponent (t = depth^power)
  *   roadShoulder        soft grass rim beyond the sand (grows toward camera)
- *   gateSpacingFactor   visual-only compression of answer-gate centres
+ *   gateSpacingFactor   visual-only compression of distant gate centres
+ *   gateDecisionSpacingFactor
+ *                       visual-only centre spacing once gates reach readable size
  *   gateSlotFill        gate width as a share of one projected road slot
  *   gateSizeBoost       depth-ramped emphasis for the decision approach
  *   min/maxGateScale    safety bounds around the lane-derived scale
- *   gateProgressPower   optional device-specific visual depth easing
  *   far/nearLaneSpacing adjacent lane-centre separation
  *   playerDepth         collision depth shared by fox and gates
  */
@@ -192,8 +193,9 @@ const ROAD_LAYOUTS = {
     gateStartDepth: 0.02,
     roadShoulder: 0.016,
     gateSpacingFactor: 0.84,
+    gateDecisionSpacingFactor: 1,
     gateSlotFill: 0.9,
-    gateSizeBoost: 1.15,
+    gateSizeBoost: 1.085,
     minGateScale: 0.2,
     maxGateScale: 1.18,
     markerWidthPx: 10,
@@ -215,8 +217,9 @@ const ROAD_LAYOUTS = {
     gateStartDepth: 0.02,
     roadShoulder: 0.017,
     gateSpacingFactor: 0.81,
+    gateDecisionSpacingFactor: 0.995,
     gateSlotFill: 0.9,
-    gateSizeBoost: 1.14,
+    gateSizeBoost: 1.085,
     minGateScale: 0.2,
     maxGateScale: 1.17,
     markerWidthPx: 9,
@@ -238,9 +241,9 @@ const ROAD_LAYOUTS = {
     gateStartDepth: 0.02,
     roadShoulder: 0.016,
     gateSpacingFactor: 0.78,
+    gateDecisionSpacingFactor: 0.99,
     gateSlotFill: 0.9,
-    gateSizeBoost: 1.22,
-    gateProgressPower: 1.25,
+    gateSizeBoost: 1.215,
     minGateScale: 0.22,
     maxGateScale: 1.22,
     markerWidthPx: 7,
@@ -496,8 +499,8 @@ function clamp01(value) {
   return Math.min(1, Math.max(0, value));
 }
 
-function gateVisualDepth(progress, power = RUNNER_GEO.gateProgressPower) {
-  return Math.pow(clamp01(progress), power);
+function gateVisualDepth(progress) {
+  return clamp01(progress);
 }
 
 function lerp(from, to, amount) {
@@ -1161,14 +1164,14 @@ let laneLeanTimer = null;
 
 function applyLaneLean(from, to) {
   if (from === null || from === undefined || from === to) return;
-  dom.playerLean.classList.remove('lean-left', 'lean-right');
-  // Restart the transform transition cleanly when changes come rapid-fire.
-  void dom.playerLean.offsetWidth;
-  dom.playerLean.classList.add(to > from ? 'lean-right' : 'lean-left');
+  // Toggle directly between directions so rapid changes interpolate from the
+  // current angle instead of snapping through neutral via a forced reflow.
+  dom.playerLean.classList.toggle('lean-right', to > from);
+  dom.playerLean.classList.toggle('lean-left', to < from);
   clearTimeout(laneLeanTimer);
   laneLeanTimer = setTimeout(() => {
     dom.playerLean.classList.remove('lean-left', 'lean-right');
-  }, 240);
+  }, 190);
 }
 
 function highlightChosenGate(lane) {
@@ -1379,10 +1382,7 @@ function rebuildWorldGeometry() {
     world.gate.depth = lerp(
       layout.gateStartDepth,
       world.playerDepth,
-      gateVisualDepth(
-        gateVisualProgress,
-        layout.gateProgressPower ?? RUNNER_GEO.gateProgressPower,
-      ),
+      gateVisualDepth(gateVisualProgress),
     );
   }
 
@@ -1398,10 +1398,12 @@ function rebuildWorldGeometry() {
 
   // One road-derived visual slot sets the unscaled gate width. The same base
   // is projected at every depth, while renderGates owns visual-only spacing.
-  const gateSlotWidthAtPlayer = playerGround.laneSpacing * world.W;
+  const laneWidthAtPlayer = playerGround.laneSpacing * world.W;
+  const gateSlotWidthAtPlayer =
+    laneWidthAtPlayer * (layout.gateSlotFill ?? RUNNER_GEO.gateSlotFill);
   dom.gatesRoot.style.setProperty(
     '--gate-road-w',
-    `${(gateSlotWidthAtPlayer * (layout.gateSlotFill ?? RUNNER_GEO.gateSlotFill)).toFixed(1)}px`,
+    `${gateSlotWidthAtPlayer.toFixed(1)}px`,
   );
 
   // Divider rails are straight in projected t-space, so every marker on a
@@ -1635,12 +1637,13 @@ function updateWorldMotion(dt, rate, playerAnimFactor) {
 }
 
 function updateRoadMotionRate(dt, state) {
-  if (state !== GAME_STATES.PLAYING && state !== GAME_STATES.FEEDBACK) {
-    return 0;
+  if (state === GAME_STATES.PLAYING) {
+    // Never carry feedback crawl into a new approach or brake near collision.
+    world.motionRate = 1;
+    return world.motionRate;
   }
-  const target = state === GAME_STATES.PLAYING || world.feedbackT < ROAD_MOTION.feedbackBurstS
-    ? 1
-    : world.crawl;
+  if (state !== GAME_STATES.FEEDBACK) return 0;
+  const target = world.feedbackT < ROAD_MOTION.feedbackBurstS ? 1 : world.crawl;
   const tau = target < world.motionRate ? ROAD_MOTION.decelTau : ROAD_MOTION.accelTau;
   const blend = 1 - Math.exp(-dt / tau);
   world.motionRate += (target - world.motionRate) * blend;
@@ -1924,7 +1927,7 @@ function updateCoins(deltaMs, dt, rate, state) {
 
 /**
  * Gate visual state per engine state:
- *  - PLAYING: eased visual depth follows gateProgress and reaches the
+ *  - PLAYING: linear visual depth follows gateProgress and reaches the
  *    collision plane at the exact frame the engine resolves the question.
  *  - FEEDBACK: the gate sweeps past the camera at gatePassBoost × world
  *    speed (~100–200ms from collision to fully behind us), scaling up and
@@ -1938,10 +1941,7 @@ function updateGateVisual(dt, state) {
     g.depth = lerp(
       start,
       world.playerDepth,
-      gateVisualDepth(
-        gateVisualProgress,
-        layout.gateProgressPower ?? RUNNER_GEO.gateProgressPower,
-      ),
+      gateVisualDepth(gateVisualProgress),
     );
     g.spawnFade = Math.min(1, g.spawnFade + dt * RUNNER_GEO.gateSpawnFadePerSecond);
   } else if (state === GAME_STATES.FEEDBACK) {
@@ -1978,7 +1978,13 @@ function renderGates() {
   );
   const sizeBoost = lerp(1, layout.gateSizeBoost ?? RUNNER_GEO.gateSizeBoost, boostProgress);
   const scale = Math.min(maxScale, Math.max(minScale, laneScale * sizeBoost));
-  const gateSpacingFactor = layout.gateSpacingFactor ?? RUNNER_GEO.gateSpacingFactor;
+  const distantGateSpacing = layout.gateSpacingFactor ?? RUNNER_GEO.gateSpacingFactor;
+  const decisionGateSpacing =
+    layout.gateDecisionSpacingFactor ?? RUNNER_GEO.gateDecisionSpacingFactor;
+  // The group begins compact at the horizon. Its centres then open only as
+  // the artwork grows, preserving visible air between neighbouring posts and
+  // stone bases without changing logical lanes, depth, or the ground anchor.
+  const gateSpacingFactor = lerp(distantGateSpacing, decisionGateSpacing, boostProgress);
   const passProgress = clamp01(
     (D - world.playerDepth) / Math.max(0.001, 1 - world.playerDepth),
   );
@@ -2313,7 +2319,8 @@ const coarsePointerQuery =
     : null;
 const SWIPE_HORIZONTAL_BIAS = 1.2;
 const SWIPE_TAP_SLOP_PX = 10;
-const SWIPE_MAX_LANE_FOLLOW = 0.4;
+const SWIPE_MAX_LANE_FOLLOW = 0.24;
+const SWIPE_MAX_LEAN_DEG = 2.5;
 let laneGesture = null;
 
 function isLaneGesturePointer(event) {
@@ -2384,7 +2391,7 @@ function playerLaneSpacingPx() {
 function renderLaneDrag(deltaX) {
   const maxOffset = Math.max(1, playerLaneSpacingPx() * SWIPE_MAX_LANE_FOLLOW);
   const offset = Math.max(-maxOffset, Math.min(maxOffset, deltaX * 0.55));
-  const lean = (offset / maxOffset) * 3;
+  const lean = (offset / maxOffset) * SWIPE_MAX_LEAN_DEG;
   dom.player.classList.add('is-dragging');
   dom.playerLean.classList.add('is-dragging');
   dom.player.style.setProperty('--player-drag-x', `${offset.toFixed(1)}px`);
@@ -3173,11 +3180,7 @@ function activeRunFrames() {
 }
 
 function activeFrameDuration() {
-  return runFrameDurationForSpeed(
-    world.speed,
-    ROAD_LAYOUTS.desktop.worldSpeed,
-    ROAD_LAYOUTS.mobile.worldSpeed,
-  );
+  return RUN_FRAME_DURATION_MS;
 }
 
 function paintRunFrame(frame, sourceIndex) {
@@ -3272,7 +3275,7 @@ function loop(now) {
 
     const visualDeltaMs = Math.min(deltaMs, ROAD_MOTION.maxDeltaMs);
     if (engine.state === GAME_STATES.PLAYING) {
-      engine.update(deltaMs); // engine clamps huge deltas (tab switches) itself
+      engine.update(deltaMs * PLAYING_PACE); // engine clamps huge deltas (tab switches) itself
       // update() can auto-resolve the question (PLAYING → FEEDBACK) and the
       // engine resets its progress — re-check before adopting the value, or
       // the gates would flash back to the horizon on timed resolutions.
@@ -3292,11 +3295,14 @@ function loop(now) {
       // Gate pass-through first: it owns the feedback clock (feedbackT).
       updateGateVisual(dt, state);
 
-      // One eased rate drives markers, details, texture, dust, coins and the
-      // fox gait. PAUSED returns zero without changing the stored rate.
-      const rate = updateRoadMotionRate(dt, state);
+      // One shared rate drives markers, details, texture, dust, coins and the
+      // fox gait. PLAYING is steady; PAUSED returns zero without changing it.
+      const motionRate = updateRoadMotionRate(dt, state);
+      const rate = state === GAME_STATES.PLAYING
+        ? motionRate * PLAYING_PACE
+        : motionRate;
       if (state === GAME_STATES.PLAYING) {
-        updatePlayerAnimation(visualDeltaMs * Math.max(rate, 0.2));
+        updatePlayerAnimation(visualDeltaMs);
       } else if (state === GAME_STATES.FEEDBACK) {
         // The fox keeps trotting through the feedback moment, matched to the
         // slow world crawl. Keep the run clock below normal speed; the separate

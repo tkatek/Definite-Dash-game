@@ -774,6 +774,10 @@ export class ArticleRunnerEngine {
     this._articleHistory = [];
     this._sessionRuleStats = {};
     this._pauseStartedAt = null;
+    this._pausedFromState = null;
+    // The gate resolves the answer, but bonuses should reward the learner's
+    // final intentional lane choice rather than the fixed collision time.
+    this._laneDecisionElapsedMs = null;
   }
 
   /* ------------ statics ------------ */
@@ -943,6 +947,8 @@ export class ArticleRunnerEngine {
     this._sessionRuleStats = {};
     this._runStartedAt = this._now();
     this._pauseStartedAt = null;
+    this._pausedFromState = null;
+    this._laneDecisionElapsedMs = null;
     this._initializeQuestionSelectionPlan();
 
     this._setState(GAME_STATES.PLAYING);
@@ -1188,6 +1194,7 @@ export class ArticleRunnerEngine {
     const question = this._pickQuestion();
     this._current = question;
     this._presentedAt = this._now();
+    this._laneDecisionElapsedMs = null;
     this._gateElapsedMs = 0;
     this._playerLane = START_LANE;
     this._laneMap = this._shuffleLanes();
@@ -1251,6 +1258,10 @@ export class ArticleRunnerEngine {
     if (!Number.isInteger(lane) || lane < 0 || lane >= LANE_COUNT) {
       throw new RangeError(`moveToLane expects an integer lane between 0 and ${LANE_COUNT - 1}.`);
     }
+    // Record even a same-lane tap: explicitly choosing the already-selected
+    // answer is still a real decision. Later choices overwrite this value so
+    // scoring follows the learner's final lane at collision.
+    this._laneDecisionElapsedMs = Math.max(0, this._now() - this._presentedAt);
     if (lane === this._playerLane) return false;
     const from = this._playerLane;
     this._playerLane = lane;
@@ -1276,7 +1287,7 @@ export class ArticleRunnerEngine {
       throw new Error(`Unknown answer category "${category}". Expected one of: ${VALID_CATEGORIES.join(', ')}.`);
     }
     const lane = this._laneMap.indexOf(category);
-    if (lane === -1 || lane === this._playerLane) return false;
+    if (lane === -1) return false;
     return this.moveToLane(lane);
   }
 
@@ -1294,12 +1305,18 @@ export class ArticleRunnerEngine {
   /* ------------ pause / resume ------------ */
 
   pause() {
-    if (this._state !== GAME_STATES.PLAYING) {
-      throw new Error(`pause() is only valid during PLAYING (current state "${this._state}").`);
+    if (this._state !== GAME_STATES.PLAYING && this._state !== GAME_STATES.FEEDBACK) {
+      throw new Error(
+        `pause() is only valid during PLAYING or FEEDBACK (current state "${this._state}").`
+      );
     }
+    this._pausedFromState = this._state;
     this._pauseStartedAt = this._now();
     this._setState(GAME_STATES.PAUSED);
-    this._events.emit('game:paused', { levelId: this._level?.id ?? null });
+    this._events.emit('game:paused', {
+      levelId: this._level?.id ?? null,
+      fromState: this._pausedFromState,
+    });
     return this.getSnapshot();
   }
 
@@ -1308,12 +1325,15 @@ export class ArticleRunnerEngine {
       throw new Error(`resume() is only valid during PAUSED (current state "${this._state}").`);
     }
     const pausedFor = Math.max(0, this._now() - (this._pauseStartedAt ?? this._now()));
-    // Paused time must not count towards the answer's response time.
-    this._presentedAt += pausedFor;
+    const resumeState = this._pausedFromState ?? GAME_STATES.PLAYING;
+    // A PLAYING pause must not count towards response time. A FEEDBACK pause
+    // has no active question, but neither kind should inflate run duration.
+    if (resumeState === GAME_STATES.PLAYING) this._presentedAt += pausedFor;
     this._runStartedAt += pausedFor;
     this._pauseStartedAt = null;
-    this._setState(GAME_STATES.PLAYING);
-    this._events.emit('game:resumed', { pausedFor });
+    this._pausedFromState = null;
+    this._setState(resumeState);
+    this._events.emit('game:resumed', { pausedFor, toState: resumeState });
     return this.getSnapshot();
   }
 
@@ -1326,7 +1346,10 @@ export class ArticleRunnerEngine {
     const selectedLane = this._playerLane;
     const selectedCategory = this._laneMap[selectedLane];
     const isCorrect = selectedCategory === question.answer.category;
-    const responseMs = Math.max(0, this._now() - this._presentedAt);
+    const responseMs = Math.max(
+      0,
+      this._laneDecisionElapsedMs ?? (this._now() - this._presentedAt)
+    );
 
     let pointsGained = 0;
     let speedBonus = 0;
