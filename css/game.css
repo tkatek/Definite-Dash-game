@@ -1172,7 +1172,6 @@ body.debug .answer-gate .gate-key {
 
   .player {
     width: min(clamp(190px, 22vw, 260px), 38cqh);
-    --player-bob: 6px;
   }
 
   .world-sign { display: none; }
@@ -1292,7 +1291,6 @@ body.debug .answer-gate .gate-key {
 
   .player {
     width: min(clamp(142px, 37vw, 176px), 31cqh);
-    --player-bob: 4px;
   }
 
   .road-guide { width: 76px; height: 56px; }
@@ -1403,17 +1401,18 @@ body.debug .answer-gate .gate-key {
 @media (prefers-reduced-motion: reduce) {
   .scene,
   .player,
+  .player-lean,
+  .player-shadow,
   .hud-level__fill,
   .tip-card,
   .hud-pause,
   .btn { transition: none; }
 
-  .player.lean-left,
-  .player.lean-right { transform: translateX(-50%); }
+  .player-lean.lean-left,
+  .player-lean.lean-right { transform: none; }
 
-  .player.is-running .player-bob,
-  .player.is-running .player-shadow,
-  .player.player-wrong .player-img,
+  .player.player-correct .player-reaction,
+  .player.player-wrong .player-reaction,
   .hud-heart.just-lost,
   .hud-pill.is-pulse,
   .hud-pill--streak.is-hot .hud-icon--flame,
