@@ -216,10 +216,22 @@
             <span class="answer-gate__label"></span>
           </div>
         </div>
-        <div id="player" class="player" aria-hidden="true">
+        <div id="player" class="player" aria-hidden="true" data-run-frame="4"
+             data-run-phase="left-compression">
+          <!-- Lane travel belongs to .player; the horizontal ground shadow
+               stays outside the lean/reaction wrappers so it never banks. -->
           <div class="player-shadow"></div>
-          <div class="player-bob">
-            <img id="player-img" class="player-img" alt="" draggable="false">
+          <div id="player-lean" class="player-lean">
+            <div class="player-reaction">
+              <div class="player-run">
+                <div class="player-frame">
+                  <img id="player-img" class="player-img"
+                       src="assets/characters/runtime/fox-run-04.webp"
+                       alt="" draggable="false" decoding="async"
+                       width="1254" height="1254">
+                </div>
+              </div>
+            </div>
           </div>
         </div>
         <div id="score-pop" class="score-pop" aria-hidden="true"></div>

@@ -1,14 +1,20 @@
-/* ==========================================================================
- * Definite Dash — stylesheet (css/game.css)
- * --------------------------------------------------------------------------
- * Layout, hierarchy and state visibility. The answer gates use the approved
- * layered artwork system (see "Answer gates" below). The road and scenery
- * are the approved environment artwork (see "Scene / environment" on
- * .runner): one painting per device class, horizon-locked to the gate
- * system so gates emerge exactly from the painted road horizon.
+/* ========================================================================== 
+ * Definite Dash — shared shell + production gameplay presentation
  * ========================================================================== */
 
-/* ---------- reset & base ---------- */
+:root {
+  --font-game: "Arial Rounded MT Bold", "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+  --navy-950: #08245a;
+  --navy-900: #0b2d6b;
+  --blue-700: #16549a;
+  --blue-600: #1f69b3;
+  --blue-400: #53a9ec;
+  --cream: #fff9ee;
+  --sand: #f5bb64;
+  --green: #45cf66;
+  --violet: #9a43da;
+  --gold: #ffbb27;
+}
 
 *,
 *::before,
@@ -18,61 +24,56 @@
 
 html,
 body {
+  width: 100%;
+  height: 100%;
   margin: 0;
   padding: 0;
-  height: 100%;
 }
 
 body {
-  font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+  overflow: hidden;
   color: #1f2933;
-  /* sky tone so the letterbox gutters beyond .app's max-width blend in */
-  background: linear-gradient(#bfe3f7, #d9effb);
-  line-height: 1.45;
+  background: linear-gradient(#64bdf1, #cbe9f7);
+  font-family: var(--font-game);
+  line-height: 1.4;
   -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
 }
 
 .app {
   position: relative;
   width: 100%;
-  /* full-bleed game world on desktop; capped so the scenery art is never
-   * upscaled excessively on very large monitors (gutters show the sky tone) */
   max-width: 1920px;
-  margin: 0 auto;
   height: 100dvh;
   min-height: 480px;
-  background: linear-gradient(#bfe3f7 0%, #d9effb 46%, #eaf6e9 46%, #eaf6e9 100%);
+  margin: 0 auto;
   overflow: hidden;
-  /* safe-area insets are handled per screen/overlay so the gameplay world
-   * itself can run edge-to-edge under notches */
+  background: #77c7ef;
 }
 
 .hidden {
   display: none !important;
 }
 
-/* ---------- shared buttons ---------- */
-
 .btn {
-  font: inherit;
-  border: 2px solid #24418a;
-  background: #ffffff;
-  color: #24418a;
-  border-radius: 12px;
+  min-height: 44px;
   padding: 10px 20px;
+  border: 2px solid #24418a;
+  border-radius: 14px;
+  background: #fff;
+  color: #24418a;
   cursor: pointer;
-  font-weight: 600;
-  transition: background 120ms ease, color 120ms ease, transform 80ms ease;
+  font: 800 0.95rem/1 var(--font-game);
+  transition: transform 100ms ease, filter 120ms ease, background 120ms ease;
   touch-action: manipulation;
 }
 
 .btn:hover:not(:disabled) {
-  background: #e8eefc;
+  background: #eef5ff;
+  filter: brightness(1.04);
 }
 
 .btn:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: translateY(1px) scale(0.98);
 }
 
 .btn:disabled {
@@ -81,29 +82,28 @@ body {
 }
 
 .btn-primary {
-  background: #24418a;
-  color: #ffffff;
+  border-color: #193f8d;
+  background: linear-gradient(180deg, #3e7ce3, #244caa);
+  color: #fff;
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.35), 0 4px 10px rgba(10, 37, 89, 0.24);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #1b3370;
+  background: linear-gradient(180deg, #4a88ed, #2954b6);
 }
 
 .btn-small {
-  padding: 6px 12px;
-  font-size: 0.85rem;
-  border-width: 1.5px;
+  min-height: 34px;
+  padding: 7px 12px;
+  font-size: 0.82rem;
 }
 
 .btn-dev {
   border-color: #b3261e;
-  color: #b3261e;
   background: #fff5f4;
-  font-size: 0.8rem;
-  padding: 6px 12px;
+  color: #b3261e;
+  font-size: 0.78rem;
 }
-
-/* ---------- screens ---------- */
 
 .screen {
   position: absolute;
@@ -116,8 +116,6 @@ body {
   overflow-y: auto;
 }
 
-/* ---------- error screen ---------- */
-
 .screen-error {
   justify-content: center;
   gap: 14px;
@@ -125,767 +123,257 @@ body {
   text-align: center;
 }
 
-.error-title {
-  margin: 0;
-  color: #b3261e;
-}
+.error-title { margin: 0; color: #b3261e; }
 
 .error-message {
-  max-width: 46ch;
-  white-space: pre-wrap;
-  background: #fff;
+  max-width: 48ch;
+  margin: 0;
+  padding: 14px;
   border: 1px solid #f3c2be;
-  border-radius: 10px;
-  padding: 12px;
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: 0.85rem;
+  border-radius: 12px;
+  background: #fff;
+  white-space: pre-wrap;
+  font: 0.84rem/1.5 ui-monospace, Consolas, monospace;
 }
 
-/* ---------- start screen ----------
- * The production landing screen lives in css/start.css (hero over the
- * approved countryside art + fox mascot, level-selection modal). Only the
- * shared .screen shell above still applies to it. */
-
-/* ---------- game screen ----------
- * The gameplay world (.runner) fills the whole screen; HUD and question
- * card are overlays above the scene's sky area, in this order:
- * scene < gates < player < HUD/question < feedback < pause overlay. */
+/* ========================================================================== 
+ * Gameplay shell and projected road
+ * ========================================================================== */
 
 .screen-game {
   padding: 0;
-  justify-content: flex-start;
   overflow: hidden;
   touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
+  isolation: isolate;
 }
-
-/* HUD + question strip pinned to the top, floating over the sky.
- * Pointer events pass through to the world below except on the pause
- * button, which opts back in. */
-.game-top {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 6;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: max(10px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 0
-    max(12px, env(safe-area-inset-left));
-  pointer-events: none;
-}
-
-.game-top .hud {
-  width: 100%;
-  max-width: 980px;
-  pointer-events: none;
-}
-
-.game-top .sentence-wrap {
-  width: 100%;
-  max-width: 720px;
-}
-
-/* ==========================================================================
- * Game HUD — floating glossy pills over the sky (presentation only; every
- * value is painted by renderHUD() from the engine snapshot).
- *
- *   [pause] [★ lesson] [⚑ 2 / 8 ▓▓░]   [coin 100] [flame 0] [♥ ♥ ♡]
- *
- * Blue pills carry the identity; score/streak/hearts get warm accent
- * surfaces. Everything is sizing-keyed to --hud-scale so phone portrait can
- * compress the whole HUD with one variable.
- * ======================================================================== */
-
-.hud {
-  --hud-scale: 1;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: calc(10px * var(--hud-scale));
-  pointer-events: none;
-}
-
-.hud-group {
-  display: flex;
-  align-items: center;
-  gap: calc(8px * var(--hud-scale));
-  min-width: 0;
-}
-
-/* ---- pause control: a real game button, not a browser chip ---- */
-
-.hud-pause {
-  pointer-events: auto;
-  flex: none;
-  /* never smaller than a comfortable touch target, whatever the HUD scale */
-  width: max(40px, calc(42px * var(--hud-scale)));
-  height: max(40px, calc(42px * var(--hud-scale)));
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(120, 165, 235, 0.9);
-  border-radius: 30%;
-  background: linear-gradient(180deg, #3d7ff0 0%, #2657c9 55%, #1d43a8 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.45),
-    inset 0 -8px 14px rgba(8, 26, 74, 0.35),
-    0 3px 8px rgba(10, 25, 60, 0.4);
-  cursor: pointer;
-  padding: 0;
-  transition: transform 120ms ease, filter 120ms ease, box-shadow 120ms ease;
-  animation: hud-drop-in 460ms cubic-bezier(0.2, 0.9, 0.3, 1.15) backwards;
-}
-
-.hud-pause:hover {
-  filter: brightness(1.12);
-  transform: translateY(-1px);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.5),
-    inset 0 -8px 14px rgba(8, 26, 74, 0.3),
-    0 5px 12px rgba(10, 25, 60, 0.45);
-}
-
-.hud-pause:active {
-  transform: translateY(1px) scale(0.96);
-  filter: brightness(0.95);
-}
-
-.hud-pause:focus-visible {
-  outline: 3px solid #ffd23f;
-  outline-offset: 2px;
-}
-
-.hud-pause__icon {
-  width: 46%;
-  height: 46%;
-  fill: #ffffff;
-  filter: drop-shadow(0 1px 1px rgba(8, 26, 74, 0.5));
-}
-
-/* ---- shared pill surface ---- */
-
-.hud-pill {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: calc(6px * var(--hud-scale));
-  min-width: 0;
-  padding: calc(6px * var(--hud-scale)) calc(13px * var(--hud-scale));
-  border-radius: 999px;
-  border: 1px solid rgba(130, 175, 240, 0.85);
-  background: linear-gradient(180deg, #3d7ff0 0%, #2a62d8 52%, #1e48ad 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.42),
-    inset 0 -10px 16px rgba(8, 26, 74, 0.32),
-    0 3px 8px rgba(10, 25, 60, 0.38);
-  color: #ffffff;
-  font-size: calc(0.88rem * var(--hud-scale));
-  line-height: 1.15;
-  white-space: nowrap;
-  user-select: none;
-  animation: hud-drop-in 460ms cubic-bezier(0.2, 0.9, 0.3, 1.15) backwards;
-}
-
-.hud-group--main > :nth-child(2),
-.hud-group--stats > :nth-child(2) {
-  animation-delay: 70ms;
-}
-
-.hud-group--main > :nth-child(3),
-.hud-group--stats > :nth-child(3) {
-  animation-delay: 140ms;
-}
-
-@keyframes hud-drop-in {
-  from {
-    opacity: 0;
-    transform: translateY(-14px) scale(0.85);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-.hud-pill__text {
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.hud-pill__text--strong {
-  font-variant-numeric: tabular-nums;
-  font-weight: 800;
-}
-
-.hud-pill__value {
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  min-width: 1.2em;
-  text-align: center;
-  text-shadow: 0 1px 2px rgba(8, 26, 74, 0.45);
-}
-
-.hud-icon {
-  flex: none;
-  width: calc(19px * var(--hud-scale));
-  height: calc(19px * var(--hud-scale));
-  filter: drop-shadow(0 1px 1.5px rgba(8, 26, 74, 0.4));
-}
-
-/* level pill: allow the lesson title to shrink with an ellipsis */
-.hud-pill--level {
-  max-width: min(38vw, 250px);
-}
-
-.hud-pill--level .hud-pill__text {
-  color: #eaf2ff;
-}
-
-/* progress pill: counter + slim fill bar */
-.hud-pill--progress {
-  gap: calc(7px * var(--hud-scale));
-}
-
-.hud-progress__track {
-  flex: none;
-  width: calc(44px * var(--hud-scale));
-  height: calc(8px * var(--hud-scale));
-  border-radius: 999px;
-  background: rgba(9, 28, 78, 0.55);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
-  overflow: hidden;
-}
-
-.hud-progress__fill {
-  display: block;
-  height: 100%;
-  width: 0%;
-  border-radius: 999px;
-  background: linear-gradient(180deg, #b6f3a9 0%, #58ca66 100%);
-  box-shadow: 0 0 7px rgba(140, 240, 140, 0.7);
-  transition: width 320ms cubic-bezier(0.25, 0.8, 0.3, 1);
-}
-
-/* score pill: blue surface, gold coin icon, gold value */
-.hud-pill--score .hud-pill__value {
-  color: #ffe9a8;
-}
-
-/* streak pill: warm surface so fire reads instantly; heats up when active */
-.hud-pill--streak {
-  border-color: rgba(255, 190, 130, 0.85);
-  background: linear-gradient(180deg, #ffab3d 0%, #f97a1f 52%, #e85d10 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.5),
-    inset 0 -10px 16px rgba(122, 44, 4, 0.3),
-    0 3px 8px rgba(120, 55, 10, 0.4);
-}
-
-.hud-pill--streak .hud-pill__value {
-  color: #fff6e3;
-}
-
-.hud-pill--streak.is-hot .hud-icon--flame {
-  animation: hud-flame-flicker 900ms ease-in-out infinite alternate;
-}
-
-@keyframes hud-flame-flicker {
-  from {
-    transform: scale(1) rotate(-2deg);
-  }
-
-  to {
-    transform: scale(1.14) rotate(2deg);
-  }
-}
-
-/* lives pill: pink surface, real hearts (built by renderHUD) */
-.hud-pill--lives {
-  border-color: rgba(255, 170, 190, 0.9);
-  background: linear-gradient(180deg, #ff7fa3 0%, #f04e78 52%, #d6315d 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.5),
-    inset 0 -10px 16px rgba(120, 8, 42, 0.3),
-    0 3px 8px rgba(110, 20, 50, 0.4);
-  gap: calc(3px * var(--hud-scale));
-}
-
-.hud-heart {
-  flex: none;
-  width: calc(17px * var(--hud-scale));
-  height: calc(17px * var(--hud-scale));
-}
-
-.hud-heart svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.hud-heart path {
-  fill: #c22550;
-  filter: drop-shadow(0 1px 1px rgba(90, 5, 30, 0.5));
-}
-
-.hud-heart.is-full path {
-  fill: #ff3b5c;
-}
-
-.hud-heart.is-lost path {
-  fill: rgba(70, 8, 28, 0.55);
-  filter: none;
-}
-
-.hud-heart.just-lost {
-  animation: hud-heart-break 520ms cubic-bezier(0.3, 0.8, 0.4, 1);
-}
-
-@keyframes hud-heart-break {
-  0% {
-    transform: scale(1);
-  }
-
-  35% {
-    transform: scale(1.35) rotate(-10deg);
-  }
-
-  100% {
-    transform: scale(1);
-  }
-}
-
-/* value-change pulse (score / streak): quick, then quiet */
-.hud-pill.is-pulse {
-  animation: hud-pulse 420ms cubic-bezier(0.2, 0.8, 0.3, 1);
-}
-
-@keyframes hud-pulse {
-  0% {
-    transform: scale(1);
-  }
-
-  35% {
-    transform: scale(1.13);
-    filter: brightness(1.15);
-  }
-
-  100% {
-    transform: scale(1);
-  }
-}
-
-/* sentence */
-
-.sentence-wrap {
-  width: 100%;
-  min-height: 3.2em;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.9);
-  border-radius: 12px;
-  padding: 8px 14px;
-}
-
-.sentence {
-  margin: 0;
-  text-align: center;
-  font-size: clamp(1.05rem, 2.6vw, 1.45rem);
-  font-weight: 600;
-  color: #1f2933;
-}
-
-.sentence .blank {
-  display: inline-block;
-  min-width: 3.2em;
-  border-bottom: 3px solid #24418a;
-  margin: 0 2px;
-  color: #24418a;
-  text-align: center;
-}
-
-/* ==========================================================================
- * Scene / environment — CSS sky + meadow, approved side scenery, and a
- * fully code-built perspective road (NO road image)
- * --------------------------------------------------------------------------
- * Layer order inside .runner (static layers all sit at z-index 1 and stack
- * by DOM order, so the pooled props / gates above them interleave by depth):
- *
- *   .scene          z0 — CSS sky → horizon → meadow gradient + distant
- *                    hills and clouds (pure gradients, no image)
- *   .scenery-left   z1 — approved transparent-PNG side scenery
- *   .scenery-right       (left: river / stone bridge / waterfall;
- *                    right: windmill / village / hay bales). The road is
- *                    painted OVER them, so scenery can never cover the
- *                    lanes, fox or gates — it only frames the road.
- *   .road-edge      z1 — soft blurred grass shoulder under the road
- *   .road-surface   z1 — warm sand trapezoid + grain (clip-path polygons
- *                    drawn by js/game.js)
- *   .road-shading   z1 — soft edge-wear bands along the sand sides (same
- *                    js/game.js through the shared projection)
- *
- * Scene geometry is defined ONCE here as custom properties and only READ by
- * js/game.js (readSceneGeo + WORLD_LAYOUTS); there is no second
- * implementation of lanes, horizon or collision lines.
- * ======================================================================== */
 
 .runner {
   position: absolute;
-  inset: 0; /* the gameplay world fills the entire game screen */
+  inset: 0;
   overflow: hidden;
-  /* Size container: gate components cap their width by runner HEIGHT too
-   * (landscape phones), not just by width. */
   container-type: size;
-
-  /* ---- scene geometry: desktop default ---- */
-  --scene-layout: desktop; /* keys the WORLD_LAYOUTS table in js/game.js */
-  --scene-horizon-y: 44%; /* coded road vanishing line */
-  --scene-collision-y: 83%; /* gate ground line at the collision moment */
-  --player-bottom: 3%;
+  --scene-layout: desktop;
+  --scene-horizon-y: 42.5%;
+  --scene-collision-y: 82%;
+  --player-bottom: 4.5%;
+  --lane-x-0: 21%;
+  --lane-x-1: 50%;
+  --lane-x-2: 79%;
 }
 
 .scene {
   position: absolute;
-  inset: 0;
+  inset: -0.6%;
   z-index: 0;
-  pointer-events: none; /* the world below stays tappable */
-  /* the whole far environment is gradients: sky → pale band at the road's
-   * vanishing line → meadow that deepens toward the camera */
-  background: linear-gradient(
-    to bottom,
-    #58b1ef 0%,
-    #9fd6f7 calc(var(--scene-horizon-y) - 6%),
-    #c7e9fa var(--scene-horizon-y),
-    #b7e28f calc(var(--scene-horizon-y) + 1.5%),
-    #8cc45e calc(var(--scene-horizon-y) + 12%),
-    #6fae4c 100%
-  );
-  /* micro-parallax (set by js/game.js on lane changes): the flat far
-   * environment shifts a couple of px opposite the fox */
-  transform: translateX(var(--scene-parallax-x, 0px));
+  pointer-events: none;
+  background-color: #54b6ee;
+  background-image: url("../assets/backgrounds/road-desktop.webp");
+  background-repeat: no-repeat;
+  background-position: center center;
+  background-size: cover;
+  transform: translateX(var(--scene-parallax-x, 0px)) scale(1.006);
+  transform-origin: center;
   transition: transform 260ms ease-out;
   will-change: transform;
 }
 
-/* Soft distant hills straddling the vanishing line, so the coded road
- * disappears into a horizon that continues the side scenery's mid-ground. */
-.scene::before {
-  content: "";
-  position: absolute;
-  left: -6%;
-  right: -6%;
-  top: calc(var(--scene-horizon-y) - 9%);
-  height: 18%;
-  background:
-    radial-gradient(55% 100% at 30% 100%, rgba(116, 172, 116, 0.9), rgba(116, 172, 116, 0) 72%),
-    radial-gradient(48% 88% at 70% 100%, rgba(134, 188, 124, 0.8), rgba(134, 188, 124, 0) 72%),
-    radial-gradient(34% 66% at 50% 100%, rgba(158, 206, 138, 0.65), rgba(158, 206, 138, 0) 74%);
-}
-
-/* A few soft clouds for sky depth (pure decoration, no motion). */
 .scene::after {
   content: "";
   position: absolute;
-  left: 0;
-  right: 0;
-  top: 2%;
-  height: 24%;
-  background:
-    radial-gradient(24% 36% at 22% 42%, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0) 70%),
-    radial-gradient(17% 27% at 33% 30%, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0) 70%),
-    radial-gradient(21% 31% at 74% 48%, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0) 70%),
-    radial-gradient(14% 23% at 82% 36%, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0) 70%);
-}
-
-/* -- side scenery: the two approved transparent PNGs --------------------- */
-
-.scenery {
-  position: absolute;
-  bottom: 0;
-  z-index: 1;
+  inset: 0;
+  background: linear-gradient(to bottom, rgba(64, 171, 235, 0.08), transparent 34%, rgba(28, 82, 41, 0.04));
   pointer-events: none;
-  user-select: none;
-  /* width/height/object-position are set per device class by js/game.js
-   * (WORLD_LAYOUTS): desktop/tablet preserve the artwork's aspect from the
-   * bottom edge; phones use a full-height cover crop of the road-side strip. */
-  /* parallax slightly stronger than the flat sky: the sides are nearer */
-  transform: translateX(calc(var(--scene-parallax-x, 0px) * 1.6));
-  transition: transform 260ms ease-out;
-  will-change: transform;
 }
 
-.scenery-left {
-  left: 0;
-}
-
-.scenery-right {
-  right: 0;
-}
-
-/* -- coded road: grass shoulder + sand surface ---------------------------- */
-
-.road-edge {
+.road-edge,
+.road-surface,
+.road-shading,
+.road-tracks {
   position: absolute;
   inset: 0;
-  z-index: 1;
   pointer-events: none;
-  /* clip-path polygon set by js/game.js (a touch wider than the sand) */
 }
 
-/* blur lives on the child so it softens the clipped edge itself: the parent
- * clips AFTER the filter, turning the hard polygon into a grass rim */
+.road-edge { z-index: 1; }
+
 .road-edge::before {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(to bottom, #7cb457, #679c44);
-  filter: blur(5px);
+  background: rgba(96, 157, 57, 0.42);
+  filter: blur(7px);
 }
 
 .road-surface {
-  position: absolute;
-  inset: 0;
   z-index: 1;
-  pointer-events: none;
-  /* warm sand: darker blend toward both edges (reads as wear where the
-   * grass shoulder meets the path) over a sunlit vertical gradient */
   background:
-    linear-gradient(
-      90deg,
-      rgba(146, 100, 46, 0.3) 0%,
-      rgba(146, 100, 46, 0) 10%,
-      rgba(146, 100, 46, 0) 90%,
-      rgba(146, 100, 46, 0.3) 100%
-    ),
-    linear-gradient(to bottom, #f7d795 0%, #f4c67e 45%, #eeb263 100%);
-  /* clip-path polygon set by js/game.js from the shared projection */
+    linear-gradient(90deg, rgba(125, 79, 34, 0.21), transparent 12%, transparent 88%, rgba(125, 79, 34, 0.21)),
+    linear-gradient(to bottom, rgba(250, 211, 139, 0.72), rgba(245, 188, 99, 0.76) 56%, rgba(236, 167, 79, 0.78));
 }
 
-/* sand grain: a soft SVG-turbulence speckle over the sand only (clipped
- * by the same polygon). Intensity comes per layout from js/game.js via
- * --road-grain-o (WORLD_LAYOUTS.grain, 0 removes the layer). */
 .road-surface::after {
   content: "";
   position: absolute;
   inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='170' height='170'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' seed='7'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='170' height='170' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='170' height='170'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.75' numOctaves='2' seed='7'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='170' height='170' filter='url(%23n)' opacity='.34'/%3E%3C/svg%3E");
   background-size: 170px 170px;
-  opacity: var(--road-grain-o, 0.5);
+  opacity: var(--road-grain-o, 0.2);
   mix-blend-mode: soft-light;
-  pointer-events: none;
 }
 
-/* soft edge-wear bands hugging the sand's slanted sides: polygons come
- * from js/game.js (--wear-clip-l/r); the blur softens the inner boundary
- * and the clip cuts AFTER the filter, like the grass shoulder rim */
-.road-shading {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-}
+.road-shading,
+.road-tracks { z-index: 1; }
 
-.road-shading i {
-  position: absolute;
-  inset: 0;
-  display: block;
-  background: rgba(120, 84, 40, var(--wear-alpha, 0.22));
-  filter: blur(5px);
-  pointer-events: none;
-}
-
-.road-shading i:first-child {
-  clip-path: var(--wear-clip-l, none);
-}
-
-.road-shading i:last-child {
-  clip-path: var(--wear-clip-r, none);
-}
-
-/* Wheel-wear tracks: one soft darkened path down each lane centre, as if
- * carts and runners have used this road for years. Same clipped-band
- * technique as the edge wear, far subtler. */
-.road-tracks {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-}
-
+.road-shading i,
 .road-tracks i {
   position: absolute;
   inset: 0;
   display: block;
-  background: rgba(96, 70, 36, 0.1);
-  filter: blur(4px);
   pointer-events: none;
 }
 
-.road-tracks i:nth-child(1) {
-  clip-path: var(--track-clip-0, none);
+.road-shading i {
+  background: rgba(119, 75, 34, var(--wear-alpha, 0.18));
+  filter: blur(6px);
 }
 
-.road-tracks i:nth-child(2) {
-  clip-path: var(--track-clip-1, none);
+.road-shading i:first-child { clip-path: var(--wear-clip-l, none); }
+.road-shading i:last-child { clip-path: var(--wear-clip-r, none); }
+
+.road-tracks i {
+  background: rgba(91, 61, 28, 0.07);
+  filter: blur(5px);
 }
 
-.road-tracks i:nth-child(3) {
-  clip-path: var(--track-clip-2, none);
-}
-
-/* ==========================================================================
- * World-motion road layer (children positioned per frame by js/game.js)
- * --------------------------------------------------------------------------
- * .road-layer   no z-index/transform/opacity here on purpose: its children
- *               carry individual z-indexes so they interleave with the
- *               gates by depth inside #runner's stacking context.
- * .road-dash    pooled perspective dash on a coded lane-divider rail.
- * .road-stone   pooled pebble on a lane rail (three size variants).
- * .road-tuft    pooled grass/flower cluster on the coded road shoulder.
- * .dust-puff    pooled dust behind the fox, fading as it flows past.
- * ========================================================================== */
+.road-tracks i:nth-child(1) { clip-path: var(--track-clip-0, none); }
+.road-tracks i:nth-child(2) { clip-path: var(--track-clip-1, none); }
+.road-tracks i:nth-child(3) { clip-path: var(--track-clip-2, none); }
 
 .road-layer {
   position: absolute;
   inset: 0;
-  pointer-events: none; /* taps belong to the road/gates, never to props */
+  pointer-events: none;
 }
 
 .road-layer > * {
   position: absolute;
-  left: 0;
   top: 0;
+  left: 0;
   will-change: transform;
 }
 
 .road-dash {
   border-radius: 42%;
-  background: linear-gradient(to bottom, #fff6e0, #f5dfae);
-  box-shadow: 0 0 2px rgba(255, 246, 220, 0.45);
+  background: linear-gradient(#fff9e9, #f5dfad);
+  box-shadow: 0 1px 2px rgba(135, 89, 38, 0.16);
 }
 
 .road-stone {
-  border-radius: 46% 54% 50% 48%;
-  filter: drop-shadow(0 1px 1.5px rgba(96, 68, 34, 0.28));
+  border-radius: 48% 54% 46% 52%;
+  filter: drop-shadow(0 1px 1.5px rgba(91, 64, 31, 0.25));
 }
 
-.stone-a {
-  background: radial-gradient(45% 40% at 34% 28%, #b7a48c, #97836c 68%, #857460);
-}
+.stone-a { background: radial-gradient(circle at 35% 28%, #c5b297, #93816d 72%); }
+.stone-b { background: radial-gradient(circle at 35% 28%, #b8a78f, #897763 72%); }
+.stone-c { background: radial-gradient(circle at 35% 28%, #cbbba4, #9a8972 72%); }
+.stone-d { background: radial-gradient(circle at 35% 28%, #b0a48f, #807563 72%); filter: none; }
 
-.stone-b {
-  background: radial-gradient(45% 40% at 34% 28%, #c3b096, #a08b72 68%, #8d7b65);
-}
-
-.stone-c {
-  background: radial-gradient(45% 40% at 34% 28%, #a99f8f, #8c8272 68%, #7c7365);
-}
-
-.stone-d {
-  background: radial-gradient(45% 40% at 34% 28%, #b5a48e, #9a8871 68%, #887760);
-  filter: none;
-}
+.road-patch { border-radius: 50%; filter: blur(1px); }
+.patch-a { background: radial-gradient(ellipse, rgba(112, 77, 37, 0.24), transparent 72%); }
+.patch-b { background: radial-gradient(ellipse, rgba(255, 235, 195, 0.28), transparent 72%); }
 
 .road-tuft {
-  border-radius: 50% 50% 45% 45%;
+  border-radius: 50%;
   background:
-    radial-gradient(60% 55% at 30% 75%, rgba(107, 158, 64, 0.95), rgba(107, 158, 64, 0) 70%),
-    radial-gradient(55% 60% at 62% 70%, rgba(129, 178, 79, 0.95), rgba(129, 178, 79, 0) 70%),
-    radial-gradient(65% 50% at 46% 55%, rgba(92, 146, 58, 0.9), rgba(92, 146, 58, 0) 72%);
+    radial-gradient(60% 65% at 32% 76%, #69a743 0 42%, transparent 72%),
+    radial-gradient(60% 65% at 70% 73%, #82bc50 0 42%, transparent 72%);
 }
 
 .tuft-flower::after {
   content: "";
   position: absolute;
+  top: 20%;
   left: 58%;
-  top: 22%;
   width: 34%;
   aspect-ratio: 1;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #ffe08a, #f2b53c 75%);
-  box-shadow: 0 0 2px rgba(255, 224, 138, 0.6);
+  background: #ffe17c;
 }
 
-/* second blossom colour for variety (assigned in the pool build) */
-.tuft-flower.flower-b::after {
-  left: 34%;
-  top: 30%;
-  background: radial-gradient(circle at 35% 30%, #ffd9e8, #e98bb4 75%);
-  box-shadow: 0 0 2px rgba(255, 217, 232, 0.6);
-}
-
-/* Road patches: faint worn/repaired blotches that ride the world flow like
- * stones — the road reads as an old, lived-on surface. */
-.road-patch {
-  border-radius: 44% 56% 58% 42% / 52% 46% 54% 48%;
-  filter: blur(1px);
-}
-
-.patch-a {
-  background:
-    radial-gradient(58% 62% at 42% 38%, rgba(112, 80, 38, 0.3), rgba(112, 80, 38, 0.12) 62%, transparent 78%);
-}
-
-.patch-b {
-  background:
-    radial-gradient(55% 58% at 55% 45%, rgba(240, 224, 186, 0.34), rgba(240, 224, 186, 0.12) 60%, transparent 78%);
-}
+.tuft-flower.flower-b::after { left: 34%; background: #ffd6e8; }
 
 .dust-puff {
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(216, 190, 142, 0.55), rgba(216, 190, 142, 0) 70%);
+  background: radial-gradient(circle, rgba(230, 199, 144, 0.48), transparent 70%);
 }
 
-/* ==========================================================================
- * Answer gates — layered component over the approved artwork
- * --------------------------------------------------------------------------
- * .answer-gate          positioned & scaled per frame by js/game.js from the
- *                        shared world projection (ground point = bottom center)
- *   __art               gate artwork (assets/gates/gate-<color>.webp), the
- *                        ONLY visual; transparent WebP with alpha
- *   __icon              dynamic category icon inside the round top plate
- *   __label             dynamic answer text on the colored signboard
- *   ::after             CSS contact shadow so gates stand ON the road
- *
- * Category → artwork/label/icon lives ONLY in GATE_VISUALS (js/game.js);
- * CSS reacts to [data-category] exclusively for fallback art and label sizing.
+.road-guides {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.road-guide {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: clamp(84px, 7.5cqw, 132px);
+  height: clamp(62px, 7cqh, 96px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: #58b9f2;
+  opacity: 0.78;
+  filter: drop-shadow(0 2px 1px rgba(89, 62, 30, 0.14));
+  transform-origin: center;
+  transition: opacity 160ms ease, filter 160ms ease;
+}
+
+.road-guide[data-category="definite"] { color: #39a9f0; }
+.road-guide[data-category="indefinite"] { color: #55c95b; }
+.road-guide[data-category="none"] { color: #b24ee7; }
+
+.road-guide.is-active {
+  opacity: 0.96;
+  filter: drop-shadow(0 3px 2px rgba(63, 46, 27, 0.18));
+}
+
+.road-guide i {
+  display: block;
+  width: 100%;
+  height: 45%;
+  background: currentColor;
+  clip-path: polygon(50% 0, 100% 53%, 78% 72%, 50% 42%, 22% 72%, 0 53%);
+}
+
+/* ========================================================================== 
+ * Answer gates
  * ========================================================================== */
-
-:root {
-  --font-game: "Baloo 2", "Fredoka", "Arial Rounded MT Bold", "Segoe UI", system-ui, sans-serif;
-}
 
 .gates {
   position: absolute;
   inset: 0;
-  /* gate sizing system: share of runner width, capped by runner height
-   * (landscape). The gate's own scale curve lives in js/game.js
-   * (RUNNER_GEO + WORLD_LAYOUTS) and is perspective-true, so this width is
-   * the NEAR-CAMERA maximum only. Desktop default; tablet/phone below. */
-  --gate-w: 24cqw;
-  --gate-h-cap: 44cqh;
+  --gate-w: 17cqw;
+  --gate-h-cap: 35cqh;
 }
 
 .answer-gate {
   position: absolute;
-  width: min(var(--gate-w), var(--gate-h-cap));
-  aspect-ratio: 960 / 930; /* real artwork proportions — never stretch */
-  left: 0;
   top: 0;
-  transform: translate(-50%, -100%);
-  transform-origin: center bottom; /* gates stand on the road, scale upward */
-  opacity: 0; /* js/game.js owns opacity per frame; hidden until first render */
+  left: 0;
+  width: min(var(--gate-w), var(--gate-h-cap));
+  aspect-ratio: 960 / 930;
+  opacity: 0;
   cursor: pointer;
   touch-action: manipulation;
+  transform: translate(-50%, -100%);
+  transform-origin: center bottom;
   will-change: transform, opacity;
-  /* the label sizes itself against this container's width */
   container-type: inline-size;
 }
 
@@ -894,791 +382,1043 @@ body {
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: contain; /* full arch always visible, no cropping */
+  object-fit: contain;
   pointer-events: none;
   user-select: none;
   -webkit-user-drag: none;
-  filter: drop-shadow(0 0.6cqh 1cqh rgba(20, 30, 45, 0.22));
+  filter: drop-shadow(0 0.7cqh 1cqh rgba(28, 37, 51, 0.24));
 }
 
-/* dynamic answer label — sits on the colored signboard (≈37.5% of art
- * height), NOT on the image bounding box; counter-scaled by --label-boost
- * (set from gateProgress) so it stays readable while the gate is far away */
 .answer-gate__label {
   position: absolute;
-  left: 50%;
   top: 37.5%;
+  left: 50%;
   transform: translate(-50%, -50%) scale(var(--label-boost, 1));
   transform-origin: center;
-  font-family: var(--font-game);
-  font-weight: 800;
-  font-size: clamp(12px, 11.5cqw, 64px);
-  line-height: 1.05;
-  letter-spacing: 0.02em;
-  white-space: nowrap; /* all three answers stay on one line */
-  color: #ffffff;
-  text-shadow:
-    0 0.06em 0 rgba(23, 42, 84, 0.55),
-    0 0.08em 0.14em rgba(15, 23, 42, 0.4);
+  color: #fff;
+  font: 900 clamp(11px, 11.5cqw, 58px)/1 var(--font-game);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  text-shadow: 0 0.07em 0 #15326b, 0 0.12em 0.16em rgba(11, 28, 60, 0.42);
   pointer-events: none;
-  user-select: none;
 }
 
-/* "NO ARTICLE" is the longest label — slightly smaller so it never
- * overflows the purple signboard on small screens */
 .answer-gate[data-category="none"] .answer-gate__label {
-  font-size: clamp(11px, 10.2cqw, 58px);
+  font-size: clamp(10px, 9.8cqw, 50px);
 }
 
-/* dynamic category icon centered in the round top plate (≈13.5% of art) */
 .answer-gate__icon {
   position: absolute;
-  left: 50%;
   top: 13.5%;
+  left: 50%;
   width: 17cqw;
   aspect-ratio: 1;
   transform: translate(-50%, -50%);
-  color: #ffffff;
-  filter: drop-shadow(0 1px 2px rgba(15, 23, 42, 0.45));
+  color: #fff;
+  filter: drop-shadow(0 1px 2px rgba(9, 29, 66, 0.44));
   pointer-events: none;
-  user-select: none;
 }
 
-.answer-gate__icon svg {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
+.answer-gate__icon svg { display: block; width: 100%; height: 100%; }
 
-/* contact shadow — CSS only, never baked into the road or the artwork */
 .answer-gate::after {
   content: "";
   position: absolute;
-  left: 50%;
   bottom: -1%;
-  width: 64%;
-  height: 6.5%;
-  transform: translateX(-50%);
+  left: 50%;
+  width: 66%;
+  height: 7%;
   border-radius: 50%;
-  background: radial-gradient(50% 50% at 50% 50%, rgba(20, 30, 45, 0.5), rgba(20, 30, 45, 0) 72%);
-  opacity: var(--gate-shadow-o, 0.3);
+  background: radial-gradient(ellipse, rgba(21, 32, 45, 0.48), transparent 72%);
+  opacity: var(--gate-shadow-o, 0.32);
+  transform: translateX(-50%);
   pointer-events: none;
 }
 
-/* debug lane key (dev mode only) */
-.answer-gate .gate-key {
-  position: absolute;
-  top: 1%;
-  left: 1%;
-  font-size: 0.62rem;
-  font-weight: 700;
-  background: #24418a;
-  color: #fff;
-  border-radius: 6px;
-  padding: 1px 5px;
-  display: none;
-  z-index: 2;
-}
+.answer-gate .gate-key { display: none; }
 
 body.debug .answer-gate .gate-key {
+  position: absolute;
+  top: 2%;
+  left: 2%;
+  z-index: 2;
   display: block;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #24418a;
+  color: #fff;
+  font-size: 0.65rem;
 }
 
-/* ---------- interaction & feedback states (glow/pulse only — the
- * artwork itself is never replaced) ---------- */
-
 .answer-gate.is-chosen .answer-gate__art {
-  filter: drop-shadow(0 0 0.9cqh rgba(255, 255, 255, 0.6));
+  filter: drop-shadow(0 0 0.85cqh rgba(255, 255, 255, 0.72));
 }
 
 .answer-gate.is-correct .answer-gate__art {
-  filter: drop-shadow(0 0 1.6cqh rgba(52, 168, 83, 0.85));
-  animation: gate-correct-pulse 640ms ease-in-out 2;
+  filter: drop-shadow(0 0 1.35cqh rgba(65, 198, 91, 0.92));
+  animation: gate-correct-pulse 620ms ease-in-out 2;
 }
 
 .answer-gate.is-wrong .answer-gate__art {
-  filter: drop-shadow(0 0 1.3cqh rgba(230, 88, 46, 0.75)) saturate(0.85);
+  filter: drop-shadow(0 0 1.15cqh rgba(230, 91, 45, 0.82)) saturate(0.9);
 }
 
-@keyframes gate-correct-pulse {
-  0%,
-  100% {
-    scale: 1;
-  }
+@keyframes gate-correct-pulse { 50% { scale: 1.045; } }
 
-  50% {
-    scale: 1.045;
-  }
-}
-
-/* ---------- emergency fallback if the artwork cannot load ----------
- * Plain CSS arch per category so gameplay survives a failed asset. */
 .gates-art-failed .answer-gate__art,
-.gates-art-failed .answer-gate__icon {
-  display: none;
-}
+.gates-art-failed .answer-gate__icon { display: none; }
 
 .gates-art-failed .answer-gate {
-  border-radius: 44% 44% 10px 10px / 26% 26% 10px 10px;
-  border: 3px solid rgba(30, 45, 90, 0.8);
+  border: 4px solid rgba(35, 45, 74, 0.8);
+  border-radius: 42% 42% 10px 10px / 24% 24% 10px 10px;
 }
 
-.gates-art-failed .answer-gate[data-category="definite"] {
-  background: #2f70eef2;
-}
+.gates-art-failed .answer-gate[data-category="definite"] { background: #2674e8; }
+.gates-art-failed .answer-gate[data-category="indefinite"] { background: #35b85a; }
+.gates-art-failed .answer-gate[data-category="none"] { background: #8b47d4; }
 
-.gates-art-failed .answer-gate[data-category="indefinite"] {
-  background: #34b55af2;
-}
-
-.gates-art-failed .answer-gate[data-category="none"] {
-  background: #8743d8f2;
-}
-
-/* player character (fox) ---------------------------------------------------
- * Lane x-positions are defined ONCE here as custom properties on .runner;
- * js/game.js renders lanes via var(--lane-x-N) only. Frame alignment classes
- * (pf-1 … pf-8) normalize the slightly different transparent margins of the
- * source frames so the fox keeps one fixed size, ground line and center.
- */
-
-.runner {
-  /* Lane anchors: where the fox stands and where arriving gates land on the
-   * coded road, expressed as runner-width fractions. js/game.js derives the
-   * road's near half-width from these (WORLD_LAYOUTS nearHalf ≥ lane
-   * spread), so lanes, dashes, stones and gates always agree on the road. */
-  --lane-x-0: 19%;
-  --lane-x-1: 50%;
-  --lane-x-2: 81%;
-}
+/* ========================================================================== 
+ * Fox
+ * --------------------------------------------------------------------------
+ * Each wrapper owns one job: .player moves between lanes; .player-lean banks
+ * during that move; .player-reaction handles one-shot answer feedback; and
+ * .player-run holds the fixed 1:1 sprite canvas. The shadow remains a sibling
+ * of every rotating wrapper, so lane changes never tilt the ground plane.
+ * ========================================================================== */
 
 .player {
   position: absolute;
-  bottom: var(--player-bottom, 3%); /* ground-anchored: a bigger fox can never clip the bottom */
+  bottom: var(--player-bottom);
   left: var(--lane-x-1);
-  /* THE single source of truth for the fox's on-screen size: this square box.
-   * The sprite frames (pf-*), the ground shadow and the bob distance below
-   * are all percentages of it, so they scale together with this one width.
-   * The cqh term keeps landscape phones from blowing the fox past the road. */
-  width: min(clamp(236px, 20vw, 328px), 44cqh);
-  aspect-ratio: 1 / 1;
-  --player-bob: 8px;
+  z-index: 5;
+  width: min(clamp(250px, 19vw, 324px), 39cqh);
+  aspect-ratio: 1;
+  --shadow-scale: 1.08;
+  --shadow-opacity: 0.49;
+  --shadow-blur: 0.5px;
   transform: translateX(-50%);
-  transition:
-    left 200ms cubic-bezier(0.25, 0.8, 0.25, 1),
-    transform 200ms cubic-bezier(0.25, 0.8, 0.25, 1);
+  transition: left 190ms cubic-bezier(0.22, 0.78, 0.3, 1);
   pointer-events: none;
-  z-index: 5; /* above road and gates, below overlays and feedback UI */
 }
 
-/* subtle directional lean while switching lanes (added and removed by game.js) */
-.player.lean-right {
-  transform: translateX(-50%) rotate(3deg);
-}
-
-.player.lean-left {
-  transform: translateX(-50%) rotate(-3deg);
-}
-
-/* subtle vertical bob; the sprite frames carry most of the running motion */
-.player .player-bob {
+.player-lean,
+.player-reaction,
+.player-run,
+.player-frame {
   position: absolute;
   inset: 0;
 }
 
-.player.is-running .player-bob {
-  animation: player-bob 352ms ease-in-out infinite;
+.player-lean {
+  transform-origin: 50% 82%;
+  transition: transform 190ms cubic-bezier(0.22, 0.78, 0.3, 1);
+  will-change: transform;
 }
 
-@keyframes player-bob {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
+.player-lean.lean-right { transform: rotate(3deg); }
+.player-lean.lean-left { transform: rotate(-3deg); }
 
-  50% {
-    transform: translateY(calc(-1 * var(--player-bob, 4px)));
-  }
+.player-run,
+.player-frame {
+  display: grid;
+  place-items: center;
 }
 
-/* ground shadow — always a separate element, never baked into the sprite.
- * Sized in % of the player box so it grows with the fox and rides along on
- * every lane slide (it lives inside .player, which carries the transition). */
-.player .player-shadow {
+/* The phase manifest updates these variables at the same instant as the
+ * image source. There is no independent CSS bob or shadow clock to drift. */
+.player-shadow {
   position: absolute;
+  bottom: 1.2%;
   left: 50%;
-  bottom: 0%;
-  width: 80%;
-  height: 15%;
-  transform: translateX(-50%);
+  width: 68%;
+  height: 10.5%;
   border-radius: 50%;
-  background: radial-gradient(50% 50% at 50% 50%, rgba(20, 30, 45, 0.5), rgba(20, 30, 45, 0) 72%);
+  background: radial-gradient(
+    ellipse at center,
+    rgba(45, 38, 32, 0.68) 0%,
+    rgba(45, 38, 32, 0.38) 33%,
+    rgba(45, 38, 32, 0) 73%
+  );
+  opacity: var(--shadow-opacity);
+  filter: blur(var(--shadow-blur));
+  transform: translateX(-50%) scale(var(--shadow-scale));
+  transform-origin: center;
+  transition: transform 72ms linear, opacity 72ms linear, filter 72ms linear;
+  will-change: transform, opacity, filter;
 }
 
-.player.is-running .player-shadow {
-  animation: player-shadow-pulse 352ms ease-in-out infinite;
-}
-
-@keyframes player-shadow-pulse {
-  0%,
-  100% {
-    transform: translateX(-50%) scale(1);
-    opacity: 0.42;
-  }
-
-  50% {
-    transform: translateX(-50%) scale(0.92);
-    opacity: 0.3;
-  }
-}
-
-.player .player-img {
-  position: absolute;
+.player-img {
+  display: block;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
-  image-rendering: auto;
   user-select: none;
   -webkit-user-drag: none;
 }
 
-/* Per-frame alignment, measured from each frame file's transparent bounds
- * (1254×1254 sources; fox content spans ~20–92% of the width). Each frame is
- * scaled/placed so that, on EVERY frame: the fox's visible width is exactly
- * 71% of the player box, the fox's visible center sits exactly on the lane
- * anchor (50% of the box), and the feet land exactly on the box's bottom
- * ground line. The wider the run pose, the smaller the img element — the
- * transparent margins absorb the difference, so the fox never wobbles in
- * size or drifts off the lane while the frames cycle. */
-.player-img.pf-1 {
-  width: 102.34%;
-  height: 102.34%;
-  left: -6.68%;
-  bottom: -4.98%;
+/* One-shot answer reactions never replace run frames with mismatched art. */
+.player.player-correct .player-reaction {
+  animation: player-correct-lift 420ms cubic-bezier(0.2, 0.8, 0.26, 1) 1;
 }
 
-.player-img.pf-2 {
-  width: 104.26%;
-  height: 104.26%;
-  left: -7.74%;
-  bottom: -0.91%;
+.player.player-wrong .player-reaction {
+  animation: player-wrong-hesitate 330ms ease-out 1;
 }
 
-.player-img.pf-3 {
-  width: 103.41%;
-  height: 103.41%;
-  left: -6.98%;
-  bottom: -1.73%;
+@keyframes player-correct-lift {
+  0%, 100% { transform: translateY(0) scale(1); }
+  42% { transform: translateY(-4.5%) scale(1.012); }
+  72% { transform: translateY(0.8%) scale(0.996); }
 }
 
-.player-img.pf-4 {
-  width: 103.41%;
-  height: 103.41%;
-  left: -6.65%;
-  bottom: -2.56%;
+@keyframes player-wrong-hesitate {
+  0%, 100% { transform: translateX(0) rotate(0); }
+  28% { transform: translateX(-1.7%) rotate(-0.8deg); }
+  58% { transform: translateX(1.35%) rotate(0.65deg); }
+  80% { transform: translateX(-0.55%) rotate(-0.25deg); }
 }
 
-.player-img.pf-5 {
-  width: 105.37%;
-  height: 105.37%;
-  left: -8.14%;
-  bottom: -2.02%;
-}
+.player.player-correct .player-img { filter: drop-shadow(0 0 8px rgba(67, 194, 88, 0.82)); }
+.player.player-wrong .player-img { filter: drop-shadow(0 0 7px rgba(214, 83, 50, 0.72)); }
 
-.player-img.pf-6 {
-  width: 101.06%;
-  height: 101.06%;
-  left: -7.14%;
-  bottom: -0.97%;
-}
-
-.player-img.pf-7 {
-  width: 98.93%;
-  height: 98.93%;
-  left: -4.95%;
-  bottom: -2.52%;
-}
-
-.player-img.pf-8 {
-  width: 105.24%;
-  height: 105.24%;
-  left: -8.54%;
-  bottom: -2.01%;
-}
-
-/* answer reactions: CSS glow over the approved frames, no extra artwork */
-.player.player-correct .player-img {
-  filter: drop-shadow(0 0 6px rgba(47, 158, 79, 0.85));
-}
-
-.player.player-wrong .player-img {
-  filter: drop-shadow(0 0 6px rgba(214, 69, 52, 0.85));
-}
-
-/* controls hint floats at the very bottom of the scene, over the road
- * (below the fox's ground line) and never intercepts taps */
-.controls-hint {
+.score-pop {
   position: absolute;
-  bottom: calc(6px + env(safe-area-inset-bottom));
-  left: 0;
-  right: 0;
-  margin: 0;
-  z-index: 6;
-  font-size: 0.75rem;
-  color: #4d6373;
-  text-align: center;
-  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
+  left: 50%;
+  bottom: 33%;
+  z-index: 8;
+  opacity: 0;
+  color: #fff7c4;
+  font: 900 clamp(1.3rem, 2.4vw, 2.2rem)/1 var(--font-game);
+  text-shadow: 0 2px 0 #ba7410, 0 4px 12px rgba(71, 45, 19, 0.38);
+  transform: translate(-50%, 12px) scale(0.8);
   pointer-events: none;
 }
 
-/* feedback panel — centered overlay above the road, below the fox */
+.score-pop.is-visible { animation: score-pop 900ms cubic-bezier(0.18, 0.8, 0.22, 1) forwards; }
+
+@keyframes score-pop {
+  18% { opacity: 1; transform: translate(-50%, 0) scale(1.08); }
+  72% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -50px) scale(1); }
+}
+
+/* ========================================================================== 
+ * Top HUD and question card
+ * ========================================================================== */
+
+.game-top {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: max(14px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) 0
+    max(18px, env(safe-area-inset-left));
+  pointer-events: none;
+}
+
+.hud {
+  --hud-scale: 1;
+  width: min(100%, 1640px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.hud-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.hud-pause,
+.hud-pill {
+  border: 2px solid rgba(130, 202, 255, 0.82);
+  background: linear-gradient(180deg, #2879c5 0%, #155da7 58%, #0c4387 100%);
+  box-shadow: inset 0 2px rgba(255, 255, 255, 0.33), inset 0 -8px 14px rgba(4, 26, 71, 0.22), 0 5px 10px rgba(10, 47, 91, 0.32);
+  color: #fff;
+}
+
+.hud-pause {
+  flex: none;
+  width: calc(72px * var(--hud-scale));
+  height: calc(72px * var(--hud-scale));
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 28%;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: transform 110ms ease, filter 110ms ease;
+}
+
+.hud-pause:hover { filter: brightness(1.08); transform: translateY(-1px); }
+.hud-pause:active { transform: translateY(1px) scale(0.97); }
+
+.hud-pause__icon {
+  width: 48%;
+  height: 48%;
+  fill: #fff;
+  filter: drop-shadow(0 2px 1px rgba(3, 24, 66, 0.45));
+}
+
+.hud-pill {
+  flex: none;
+  min-height: calc(66px * var(--hud-scale));
+  display: flex;
+  align-items: center;
+  gap: calc(10px * var(--hud-scale));
+  padding: calc(9px * var(--hud-scale)) calc(17px * var(--hud-scale));
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.hud-icon {
+  flex: none;
+  width: calc(38px * var(--hud-scale));
+  height: calc(38px * var(--hud-scale));
+  filter: drop-shadow(0 2px 2px rgba(5, 29, 70, 0.4));
+}
+
+.hud-pill__stack {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: calc(5px * var(--hud-scale));
+}
+
+.hud-pill__text,
+.hud-pill__value,
+.hud-streak__label {
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: 0 2px 1px rgba(3, 25, 66, 0.42);
+}
+
+.hud-pill__text {
+  overflow: hidden;
+  font-size: calc(1.18rem * var(--hud-scale));
+  text-overflow: ellipsis;
+}
+
+.hud-pill__text--strong,
+.hud-pill__value {
+  font-size: calc(1.3rem * var(--hud-scale));
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-pill--level { width: calc(230px * var(--hud-scale)); }
+.hud-pill--progress { width: calc(220px * var(--hud-scale)); }
+.hud-pill--score { min-width: calc(135px * var(--hud-scale)); justify-content: center; }
+.hud-pill--streak { min-width: calc(172px * var(--hud-scale)); justify-content: center; }
+.hud-pill--lives { min-width: calc(168px * var(--hud-scale)); justify-content: center; }
+
+.hud-level__track {
+  width: 100%;
+  height: calc(12px * var(--hud-scale));
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(5, 31, 72, 0.62);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.34);
+}
+
+.hud-level__fill {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(#78ef80, #38c858);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.45);
+  transition: width 300ms ease;
+}
+
+.hud-progress__segments {
+  width: 100%;
+  display: flex;
+  gap: calc(3px * var(--hud-scale));
+}
+
+.hud-progress__segment {
+  height: calc(13px * var(--hud-scale));
+  flex: 1 1 0;
+  border-radius: 999px;
+  background: rgba(102, 163, 218, 0.52);
+  box-shadow: inset 0 1px 2px rgba(3, 23, 59, 0.36);
+}
+
+.hud-progress__segment.is-complete {
+  background: linear-gradient(#7bed86, #3ac85b);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.48), 0 0 4px rgba(80, 215, 99, 0.35);
+}
+
+.hud-progress__segment.is-current { filter: brightness(1.08); }
+.hud-pill--score .hud-pill__value { color: #fff7d0; }
+
+.hud-streak__label {
+  color: #ffd25b;
+  font-size: calc(1.04rem * var(--hud-scale));
+}
+
+.hud-pill--streak.is-hot .hud-icon--flame { animation: flame-flicker 840ms ease-in-out infinite alternate; }
+@keyframes flame-flicker { to { transform: scale(1.1) rotate(2deg); } }
+
+.hud-pill--lives { gap: calc(6px * var(--hud-scale)); }
+
+.hud-heart {
+  width: calc(35px * var(--hud-scale));
+  height: calc(35px * var(--hud-scale));
+}
+
+.hud-heart svg { display: block; width: 100%; height: 100%; }
+
+.hud-heart path {
+  fill: #6786a7;
+  stroke: #294d75;
+  stroke-width: 0.8;
+  filter: drop-shadow(0 2px 1px rgba(4, 28, 65, 0.35));
+}
+
+.hud-heart.is-full path { fill: #ff5574; stroke: #b92d51; }
+.hud-heart.just-lost { animation: heart-break 480ms ease; }
+@keyframes heart-break { 35% { transform: scale(1.28) rotate(-8deg); } }
+
+.hud-pill.is-pulse { animation: hud-pulse 390ms ease; }
+@keyframes hud-pulse { 40% { transform: scale(1.08); filter: brightness(1.12); } }
+
+.sentence-wrap {
+  width: clamp(620px, 53vw, 900px);
+  min-height: 118px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 16px 34px 14px;
+  border: 3px solid rgba(255, 255, 255, 0.74);
+  border-radius: 34px;
+  background: rgba(255, 249, 238, 0.97);
+  box-shadow: 0 8px 18px rgba(41, 73, 102, 0.24), inset 0 1px #fff;
+}
+
+.sentence {
+  margin: 0;
+  color: var(--navy-950);
+  font: 900 clamp(1.65rem, 2.25vw, 2.35rem)/1.15 var(--font-game);
+  text-align: center;
+  text-wrap: balance;
+}
+
+.sentence .blank {
+  min-width: 3.3em;
+  display: inline-block;
+  margin: 0 0.08em;
+  border-bottom: 5px solid var(--navy-950);
+  color: transparent;
+  line-height: 0.9;
+}
+
+.sentence-instruction {
+  margin: 0;
+  color: #5f82aa;
+  font: 800 clamp(0.95rem, 1.35vw, 1.22rem)/1.1 var(--font-game);
+}
+
+/* ========================================================================== 
+ * In-world supporting UI
+ * ========================================================================== */
+
+.world-sign {
+  position: absolute;
+  z-index: 4;
+  width: clamp(170px, 13vw, 224px);
+  min-height: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 16px 12px;
+  border: 4px solid #9a5626;
+  border-radius: 10px;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.1), transparent 30% 72%, rgba(91, 46, 16, 0.13)),
+    repeating-linear-gradient(to bottom, #e69a4a 0 31px, #b86a30 31px 35px);
+  color: #6c3518;
+  box-shadow: inset 0 2px rgba(255, 222, 151, 0.56), 0 6px 12px rgba(73, 47, 24, 0.24);
+  font: 900 clamp(0.86rem, 1.18vw, 1.2rem)/1.12 var(--font-game);
+  text-align: center;
+  text-shadow: 0 1px rgba(255, 216, 146, 0.46);
+  pointer-events: none;
+}
+
+.world-sign::before,
+.world-sign::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  width: 14px;
+  height: 76px;
+  border: 3px solid #88471f;
+  border-top: 0;
+  background: #b8672d;
+}
+
+.world-sign::before { left: 26px; }
+.world-sign::after { right: 26px; }
+.world-sign--left { top: 53%; left: 1.7%; transform: rotate(-3deg); }
+.world-sign--right { top: 36%; right: 1.8%; transform: rotate(3deg); }
+
+.tip-card {
+  position: absolute;
+  bottom: max(24px, env(safe-area-inset-bottom));
+  left: max(24px, env(safe-area-inset-left));
+  z-index: 72;
+  width: min(360px, 30vw);
+  min-height: 112px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 15px 18px;
+  border: 2px solid rgba(255, 255, 255, 0.72);
+  border-radius: 28px;
+  background: linear-gradient(135deg, rgba(35, 57, 76, 0.88), rgba(53, 76, 89, 0.82));
+  box-shadow: 0 8px 18px rgba(34, 46, 52, 0.28), inset 0 1px rgba(255, 255, 255, 0.15);
+  color: #fff;
+  transition: opacity 180ms ease, transform 180ms ease;
+  pointer-events: none;
+}
+
+.tip-card__icon { flex: 0 0 60px; width: 60px; height: 60px; }
+.tip-card__icon svg { width: 100%; height: 100%; }
+
+.tip-card__copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font: 700 clamp(0.78rem, 1vw, 0.98rem)/1.28 var(--font-game);
+}
+
+.tip-card__copy strong { font-size: 1.08em; }
+
+.owl-help {
+  position: absolute;
+  right: max(20px, env(safe-area-inset-right));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 72;
+  width: min(470px, 38vw);
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+
+.owl-help__mascot {
+  flex: 0 0 clamp(118px, 10vw, 154px);
+  width: clamp(118px, 10vw, 154px);
+  margin-right: -14px;
+}
+
+.owl-help__mascot svg { display: block; width: 100%; height: auto; }
+
+.owl-help__bubble {
+  position: relative;
+  width: min(320px, 27vw);
+  min-height: 122px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 18px 22px;
+  border: 2px solid #8bc4ed;
+  border-radius: 28px;
+  background: rgba(241, 250, 255, 0.96);
+  box-shadow: 0 8px 18px rgba(34, 70, 102, 0.22), inset 0 1px #fff;
+  color: var(--navy-900);
+}
+
+.owl-help__bubble::after {
+  content: "";
+  position: absolute;
+  left: -18px;
+  bottom: 24px;
+  width: 28px;
+  height: 28px;
+  border-bottom: 2px solid #8bc4ed;
+  border-left: 2px solid #8bc4ed;
+  background: #f1faff;
+  transform: rotate(42deg);
+}
+
+.owl-help__bulb { z-index: 1; flex: none; font-size: 2rem; }
+
+.owl-help__bubble p {
+  z-index: 1;
+  margin: 0;
+  font: 800 clamp(0.8rem, 1.05vw, 1rem)/1.25 var(--font-game);
+}
+
+.mobile-hint { display: none; }
+
+.controls-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  z-index: 70;
+  margin: 0;
+  color: rgba(33, 65, 93, 0.62);
+  font: 700 0.68rem/1 var(--font-game);
+  text-shadow: 0 1px rgba(255, 255, 255, 0.74);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.screen-game.is-feedback .tip-card { opacity: 0; transform: translateY(10px); }
+
+/* ========================================================================== 
+ * Feedback, overlays and result screens
+ * ========================================================================== */
 
 .feedback {
   position: absolute;
-  left: 50%;
-  top: 54%;
-  transform: translate(-50%, -50%);
-  z-index: 8;
-  width: min(92%, 560px);
-  max-height: 68vh;
-  overflow-y: auto;
-  background: #ffffff;
-  border-radius: 14px;
-  border-top: 6px solid #888;
-  padding: 12px 16px 14px;
-  text-align: center;
+  bottom: max(24px, env(safe-area-inset-bottom));
+  left: max(24px, env(safe-area-inset-left));
+  z-index: 110;
+  width: min(430px, 36vw);
+  max-height: 42vh;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.25);
+  gap: 7px;
+  overflow-y: auto;
+  padding: 16px 18px;
+  border: 2px solid rgba(255, 255, 255, 0.86);
+  border-left: 7px solid #6f8aa0;
+  border-radius: 24px;
+  background: rgba(255, 253, 247, 0.97);
+  box-shadow: 0 12px 28px rgba(27, 51, 70, 0.28), inset 0 1px #fff;
+  text-align: left;
 }
 
-/* Keep the debug bar from covering the Continue button while debugging. */
-body.debug .feedback {
-  top: 47%;
-}
-
-.feedback.feedback-correct {
-  border-top-color: #2f9e4f;
-}
-
-.feedback.feedback-wrong {
-  border-top-color: #d64534;
-}
-
-.feedback-title {
-  margin: 0;
-  font-size: 1.2rem;
-}
-
-.feedback.feedback-correct .feedback-title {
-  color: #1f7a3d;
-}
-
-.feedback.feedback-wrong .feedback-title {
-  color: #b3261e;
-}
+.feedback.feedback-correct { border-left-color: #3cc45c; }
+.feedback.feedback-wrong { border-left-color: #e06442; }
+.feedback-title { margin: 0; font-size: 1.26rem; }
+.feedback-correct .feedback-title { color: #218745; }
+.feedback-wrong .feedback-title { color: #b9482f; }
 
 .feedback-sentence {
   margin: 0;
-  font-size: 1.05rem;
-  font-weight: 600;
+  color: var(--navy-900);
+  font-size: 1rem;
+  font-weight: 800;
 }
 
 .feedback-sentence .filled {
-  color: #24418a;
-  border-bottom: 2px solid #24418a;
-  font-weight: 800;
+  color: #2459ae;
+  border-bottom: 2px solid #2459ae;
+  font-weight: 900;
 }
 
 .feedback-detail {
   margin: 0;
-  font-size: 0.9rem;
-  color: #4b5b6b;
+  color: #526777;
+  font: 700 0.84rem/1.35 var(--font-game);
 }
 
-/* ---------- overlays ---------- */
+.feedback .btn { align-self: stretch; margin-top: 3px; }
 
 .overlay {
   position: absolute;
   inset: 0;
-  background: rgba(15, 23, 42, 0.55);
+  z-index: 200;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10;
   padding: 20px;
+  background: rgba(8, 28, 59, 0.58);
 }
 
 .overlay-card,
 .result-card {
-  background: #ffffff;
-  border-radius: 16px;
-  padding: 22px 26px;
-  max-width: 480px;
-  width: 100%;
-  text-align: center;
+  width: min(100%, 500px);
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.35);
+  gap: 13px;
+  padding: 24px 28px;
+  border: 3px solid rgba(255, 255, 255, 0.76);
+  border-radius: 28px;
+  background: var(--cream);
+  box-shadow: 0 18px 44px rgba(7, 26, 58, 0.36), inset 0 1px #fff;
+  text-align: center;
 }
 
 .overlay-card h2,
-.result-card h2 {
-  margin: 0;
-}
+.result-card h2 { margin: 0; color: var(--navy-900); }
 
-.overlay-note {
-  margin: 0;
-  color: #4b5b6b;
-  font-size: 0.95rem;
-}
+.overlay-note { margin: 0; color: #526777; font-size: 0.95rem; }
 
 .overlay-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
   justify-content: center;
+  gap: 10px;
   margin-top: 4px;
 }
-
-/* result screens */
 
 .screen-complete,
 .screen-gameover {
   justify-content: center;
-  background: rgba(234, 246, 233, 0.96);
+  background: linear-gradient(rgba(219, 243, 253, 0.88), rgba(236, 247, 225, 0.92)),
+    url("../assets/backgrounds/road-desktop.webp") center / cover;
 }
 
 .screen-gameover {
-  background: rgba(255, 240, 238, 0.97);
+  background: linear-gradient(rgba(255, 239, 232, 0.91), rgba(255, 247, 235, 0.94)),
+    url("../assets/backgrounds/road-desktop.webp") center / cover;
 }
 
-.result-stars {
-  margin: 0;
-  font-size: 2rem;
-  letter-spacing: 6px;
-  color: #d99513;
-}
+.result-stars { margin: 0; color: #d99513; font-size: 2rem; letter-spacing: 6px; }
 
 .result-stats {
-  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
+  gap: 8px;
   margin: 0;
   padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-  gap: 8px;
+  list-style: none;
 }
 
 .result-stats li {
-  background: #f1f5fb;
-  border-radius: 10px;
-  padding: 8px 10px;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: #eef4fb;
 }
 
-.result-stats span {
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: #66788c;
-}
-
-.result-stats b {
-  font-size: 1.15rem;
-}
+.result-stats span { color: #677a8e; font-size: 0.72rem; }
+.result-stats b { font-size: 1.15rem; }
 
 .weak-rules {
-  text-align: left;
-  background: #fff8e6;
+  padding: 11px 14px;
   border: 1px solid #e3c979;
-  border-radius: 10px;
-  padding: 10px 14px;
+  border-radius: 12px;
+  background: #fff8e6;
+  text-align: left;
 }
 
-.weak-rules h3 {
-  margin: 0 0 6px;
-  font-size: 0.9rem;
-  color: #6b5312;
-}
-
-.weak-rules ul {
-  margin: 0;
-  padding-left: 18px;
-  font-size: 0.85rem;
-}
-
-.weak-rules li {
-  margin: 2px 0;
-}
-
-/* ---------- dev bar ---------- */
+.weak-rules h3 { margin: 0 0 6px; color: #6b5312; font-size: 0.9rem; }
+.weak-rules ul { margin: 0; padding-left: 18px; font-size: 0.84rem; }
 
 .dev-bar {
   position: absolute;
-  left: 8px;
   bottom: 8px;
-  z-index: 20;
+  left: 8px;
+  z-index: 300;
   display: flex;
-  gap: 10px;
   align-items: center;
-  background: rgba(15, 23, 42, 0.85);
-  color: #9fe3b1;
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: 0.72rem;
+  gap: 10px;
+  padding: 6px 10px;
   border-radius: 8px;
-  padding: 5px 10px;
-  pointer-events: auto;
+  background: rgba(15, 23, 42, 0.87);
+  color: #9fe3b1;
+  font: 0.72rem/1 ui-monospace, Consolas, monospace;
 }
 
-/* ==========================================================================
- * Responsive adjustments
- * --------------------------------------------------------------------------
- * Scene breakpoints — 680px / 1200px — select the device-class painting AND
- * retune lane anchors, gate sizing and horizon together, so the artwork and
- * the gameplay geometry can never drift apart. Values for lanes/horizon are
- * measured from the approved paintings (painted lane centers at the fox's
- * ground depth; painted road horizon row).
+:focus-visible { outline: 4px solid #ffd23f; outline-offset: 3px; }
+
+/* ========================================================================== 
+ * Tablet layout — 681–1100px
  * ========================================================================== */
 
-/* tablets and up: text-only tweaks */
-@media (min-width: 768px) {
-  .sentence {
-    font-size: 1.5rem;
-  }
-}
-
-@media (min-width: 1024px) {
-  .controls-hint {
-    font-size: 0.8rem;
-  }
-}
-
-/* ---- tablet / iPad: narrower coded road so the side scenery reads ---- */
-@media (max-width: 1200px) {
+@media (max-width: 1100px) {
   .runner {
     --scene-layout: tablet;
-    --scene-horizon-y: 46%;
-    --scene-collision-y: 83%;
-    /* the coded road is narrower here than the old painted one: lanes pull
-     * in a touch so the scenery frames the road without covering it */
+    --scene-horizon-y: 44%;
+    --scene-collision-y: 82.5%;
+    --player-bottom: 4%;
     --lane-x-0: 21%;
     --lane-x-1: 50%;
     --lane-x-2: 79%;
   }
 
-  /* tablet: gates sized so a near gate stays ~1.3× the fox's height —
-   * attractive and readable without dominating the narrower road */
-  .gates {
-    --gate-w: 27cqw;
-    --gate-h-cap: 42cqh;
+  .scene { background-image: url("../assets/backgrounds/road-tablet.webp"); }
+
+  .game-top { gap: 9px; padding-top: max(10px, env(safe-area-inset-top)); }
+
+  .hud { --hud-scale: 0.78; gap: 10px; }
+  .hud-group { gap: 7px; }
+  .hud-pill--level { width: calc(190px * var(--hud-scale)); }
+  .hud-pill--progress { width: calc(190px * var(--hud-scale)); }
+
+  .sentence-wrap {
+    width: min(72vw, 760px);
+    min-height: 104px;
+    padding: 14px 28px 13px;
+    border-radius: 29px;
   }
 
-  /* tablet: the fox stays the hero of the mid ground, but leaves the gates
-   * their hierarchy; the cqh term guards landscape tablets (short height) */
+  .sentence { font-size: clamp(1.45rem, 3vw, 2rem); }
+
+  .gates { --gate-w: 23cqw; --gate-h-cap: 34cqh; }
+
   .player {
-    width: min(clamp(160px, 20vw, 250px), 42cqh);
+    width: min(clamp(190px, 22vw, 260px), 38cqh);
     --player-bob: 6px;
   }
+
+  .world-sign { display: none; }
+
+  .tip-card {
+    width: min(290px, 34vw);
+    min-height: 96px;
+    padding: 12px 14px;
+    border-radius: 22px;
+  }
+
+  .tip-card__icon { flex-basis: 48px; width: 48px; height: 48px; }
+  .owl-help { width: min(360px, 43vw); }
+  .owl-help__mascot { flex-basis: 100px; width: 100px; }
+  .owl-help__bubble { width: min(255px, 31vw); min-height: 100px; padding: 14px 16px; border-radius: 22px; }
+  .feedback { width: min(390px, 45vw); }
 }
 
-/* ---- phones: portrait, road spans the full bottom width ---- */
+@media (max-width: 900px) and (orientation: portrait) {
+  .scene {
+    background-image: url("../assets/backgrounds/road-mobile.webp");
+    background-position: center center;
+  }
+
+  .runner { --scene-horizon-y: 42%; }
+
+  .hud { flex-wrap: wrap; justify-content: center; }
+  .hud-group--main,
+  .hud-group--stats { justify-content: center; }
+}
+
+/* ========================================================================== 
+ * Phone layout — ≤680px
+ * ========================================================================== */
+
 @media (max-width: 680px) {
-  /* Phone portrait is a dedicated composition: compact HUD + question at
-   * the top, a WIDE road that owns the bottom ~88% of the width, gates
-   * readable from spawn, and side scenery reduced to small feathered
-   * landmark crops in the upper corners. Road begins just below the
-   * question card — no dead sky band between them. */
+  .app { min-height: 0; }
+
   .runner {
     --scene-layout: mobile;
-    --scene-horizon-y: 38%;
-    --scene-collision-y: 84%;
-    /* lane centers of the wide road at the collision plane */
-    --lane-x-0: 21%;
+    --scene-horizon-y: 42%;
+    --scene-collision-y: 82%;
+    --player-bottom: 8%;
+    --lane-x-0: 22%;
     --lane-x-1: 50%;
-    --lane-x-2: 79%;
-    --player-bottom: 9%;
+    --lane-x-2: 78%;
   }
 
-  /* Compact top stack: ONE polished HUD row (reference style) + a big
-   * prominent question card. */
+  .scene {
+    background-image: url("../assets/backgrounds/road-mobile.webp");
+    background-position: center center;
+  }
+
+  .road-surface {
+    background:
+      linear-gradient(90deg, rgba(125, 79, 34, 0.16), transparent 13%, transparent 87%, rgba(125, 79, 34, 0.16)),
+      linear-gradient(to bottom, rgba(250, 211, 139, 0.58), rgba(245, 188, 99, 0.62) 56%, rgba(236, 167, 79, 0.66));
+  }
+
   .game-top {
     gap: 6px;
-    padding-top: max(6px, env(safe-area-inset-top));
+    padding: max(6px, env(safe-area-inset-top)) max(7px, env(safe-area-inset-right)) 0
+      max(7px, env(safe-area-inset-left));
   }
 
-  /* Phone HUD: single row like the reference — pause · lesson · progress ·
-   * score · streak · hearts — compressed through one --hud-scale. Wraps to
-   * a clean second row on narrow phones instead of clipping off-screen. */
   .hud {
-    --hud-scale: 0.8;
-    flex-direction: row;
+    --hud-scale: 0.62;
     flex-wrap: wrap;
     justify-content: center;
-    gap: 5px;
+    gap: 4px;
   }
 
   .hud-group {
-    gap: 5px;
+    width: 100%;
     justify-content: center;
-    width: auto;
-  }
-
-  .hud-pill--level {
-    max-width: 34vw;
-  }
-
-  .hud-pill--level .hud-pill__text {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .hud-pause:focus-visible {
-    outline-width: 2px;
-  }
-
-  /* Reference question card: large white rounded card, big navy type. */
-  .sentence-wrap {
-    min-height: 3.3em;
-    padding: 11px 16px;
-    border-radius: 16px;
-    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.22), 0 1px 3px rgba(15, 23, 42, 0.12);
-  }
-
-  .sentence {
-    font-size: 1.18rem;
-    line-height: 1.32;
-    font-weight: 700;
-    color: #16233a;
-  }
-
-  /* Side scenery: small top-anchored crops that frame the road (exact
-   * crop window set per artwork by js/game.js). Feathered on the inner
-   * edge and bottom so there is no hard seam against the sky or road. */
-  .scenery {
-    bottom: auto;
-    top: 0;
-    -webkit-mask-image: linear-gradient(to bottom, #000 62%, transparent 100%);
-    mask-image: linear-gradient(to bottom, #000 62%, transparent 100%);
-  }
-
-  .scenery-left {
-    -webkit-mask-image: linear-gradient(to right, #000 55%, transparent 100%),
-      linear-gradient(to bottom, #000 62%, transparent 100%);
-    -webkit-mask-composite: source-in;
-    mask-image: linear-gradient(to right, #000 55%, transparent 100%),
-      linear-gradient(to bottom, #000 62%, transparent 100%);
-    mask-composite: intersect;
-  }
-
-  .scenery-right {
-    -webkit-mask-image: linear-gradient(to left, #000 55%, transparent 100%),
-      linear-gradient(to bottom, #000 62%, transparent 100%);
-    -webkit-mask-composite: source-in;
-    mask-image: linear-gradient(to left, #000 55%, transparent 100%),
-      linear-gradient(to bottom, #000 62%, transparent 100%);
-    mask-composite: intersect;
-  }
-
-  .player {
-    /* phone hero: the fox is the reference's foreground character —
-     * ~33% of the viewport wide, close to the camera */
-    width: min(clamp(120px, 33vw, 164px), 40cqh);
-    --player-bob: 3.5px;
-  }
-
-  /* phones: gates are big reference-style boards — readable from spawn,
-   * planted on the lane, never overlapping each other */
-  .gates {
-    --gate-w: 42cqw;
-    --gate-h-cap: 44cqh;
-  }
-
-  .controls-hint {
-    font-size: 0.66rem;
-  }
-}
-
-/* small phones */
-@media (max-width: 430px) {
-  .screen {
-    padding: 10px;
-  }
-
-  .result-card {
-    padding: 16px;
-  }
-}
-
-/* very small phones */
-@media (max-width: 360px) {
-  .hud {
-    --hud-scale: 0.78;
     gap: 5px;
   }
 
-  .hud-pill--level {
-    max-width: 36vw;
+  .hud-pause { width: 44px; height: 44px; }
+
+  .hud-pill {
+    min-height: 43px;
+    border-width: 1.5px;
   }
 
-  /* very narrow phones: gates keep the wider phone share */
-  .gates {
-    --gate-w: 38cqw;
+  .hud-pill--level { width: 112px; }
+  .hud-pill--progress { width: 132px; }
+  .hud-pill--score { min-width: 82px; }
+  .hud-pill--streak { min-width: 100px; }
+  .hud-pill--lives { min-width: 103px; }
+  .hud-pill__text { font-size: 0.76rem; }
+  .hud-pill__text--strong,
+  .hud-pill__value { font-size: 0.86rem; }
+  .hud-streak__label { font-size: 0.68rem; }
+  .hud-icon { width: 22px; height: 22px; }
+  .hud-heart { width: 20px; height: 20px; }
+  .hud-level__track { height: 7px; }
+  .hud-progress__segment { height: 8px; }
+
+  .sentence-wrap {
+    width: calc(100vw - 20px);
+    min-height: 91px;
+    gap: 5px;
+    padding: 12px 14px 11px;
+    border-width: 2px;
+    border-radius: 24px;
+    box-shadow: 0 6px 14px rgba(41, 73, 102, 0.22), inset 0 1px #fff;
   }
+
+  .sentence { font-size: clamp(1.12rem, 5.2vw, 1.45rem); line-height: 1.18; }
+  .sentence .blank { border-bottom-width: 3px; }
+  .sentence-instruction { font-size: 0.78rem; }
+
+  .gates { --gate-w: 30cqw; --gate-h-cap: 21cqh; }
+  .answer-gate__label { font-size: clamp(9px, 11cqw, 32px); }
+  .answer-gate[data-category="none"] .answer-gate__label { font-size: clamp(8px, 9.5cqw, 29px); }
+
+  .player {
+    width: min(clamp(142px, 37vw, 176px), 31cqh);
+    --player-bob: 4px;
+  }
+
+  .road-guide { width: 76px; height: 56px; }
+
+  .world-sign,
+  .tip-card,
+  .owl-help,
+  .controls-hint { display: none; }
+
+  .mobile-hint {
+    position: absolute;
+    right: max(10px, env(safe-area-inset-right));
+    bottom: max(10px, env(safe-area-inset-bottom));
+    z-index: 74;
+    display: block;
+    color: var(--navy-900);
+    font-family: var(--font-game);
+  }
+
+  .mobile-hint summary {
+    min-width: 72px;
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 8px 12px;
+    border: 2px solid #80bce5;
+    border-radius: 999px;
+    background: rgba(245, 252, 255, 0.95);
+    box-shadow: 0 5px 12px rgba(32, 66, 96, 0.22);
+    cursor: pointer;
+    font-size: 0.78rem;
+    font-weight: 900;
+    list-style: none;
+  }
+
+  .mobile-hint summary::-webkit-details-marker { display: none; }
+
+  .mobile-hint p {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 8px);
+    width: min(250px, calc(100vw - 24px));
+    margin: 0;
+    padding: 12px 14px;
+    border: 2px solid #80bce5;
+    border-radius: 18px;
+    background: rgba(245, 252, 255, 0.98);
+    box-shadow: 0 8px 18px rgba(32, 66, 96, 0.24);
+    font-size: 0.78rem;
+    line-height: 1.3;
+  }
+
+  .feedback {
+    right: max(10px, env(safe-area-inset-right));
+    bottom: max(10px, env(safe-area-inset-bottom));
+    left: max(10px, env(safe-area-inset-left));
+    width: auto;
+    max-height: 35vh;
+    gap: 5px;
+    padding: 11px 13px;
+    border-left-width: 5px;
+    border-radius: 18px;
+  }
+
+  .feedback-title { font-size: 1rem; }
+  .feedback-sentence { font-size: 0.84rem; }
+  .feedback-detail { font-size: 0.72rem; }
+  .feedback .btn { min-height: 38px; padding: 8px 14px; font-size: 0.8rem; }
+  .screen-game.is-feedback .mobile-hint { display: none; }
+  .score-pop { bottom: 31%; }
 }
 
-/* reduce motion politely even in the prototype; lane movement still works.
- * Depth is gameplay: gates still travel with gateProgress and the road still
- * flows (slowed by js via WORLD_MOTION.reducedFactor) — only decorative
- * pulsing/glow/dust animations are disabled. */
+@media (max-width: 430px) {
+  .screen:not(.screen-game):not(.screen-start) { padding: 10px; }
+  .result-card { padding: 18px; }
+}
+
+@media (max-width: 360px) {
+  .hud { --hud-scale: 0.57; }
+  .hud-pill--level { width: 101px; }
+  .hud-pill--progress { width: 118px; }
+  .hud-pill--score { min-width: 74px; }
+  .hud-pill--streak { min-width: 90px; }
+  .hud-pill--lives { min-width: 94px; }
+  .sentence-wrap { min-height: 84px; }
+  .sentence { font-size: 1.05rem; }
+  .sentence-instruction { font-size: 0.7rem; }
+  .gates { --gate-w: 29cqw; }
+  .player { width: min(136px, 30cqh); }
+}
+
+@media (max-height: 760px) and (min-width: 681px) {
+  .game-top { gap: 7px; padding-top: max(8px, env(safe-area-inset-top)); }
+  .hud { --hud-scale: 0.72; }
+  .sentence-wrap { min-height: 86px; padding: 10px 26px; border-radius: 26px; }
+  .sentence { font-size: clamp(1.35rem, 2.4vw, 1.85rem); }
+  .sentence-instruction { font-size: 0.86rem; }
+  .player { width: min(clamp(205px, 18vw, 270px), 35cqh); }
+  .gates { --gate-h-cap: 31cqh; }
+  .tip-card { width: 300px; min-height: 88px; padding: 10px 13px; }
+  .owl-help__mascot { flex-basis: 96px; width: 96px; }
+  .owl-help__bubble { min-height: 88px; margin-bottom: 12px; padding: 12px 15px; }
+  .world-sign { display: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .player {
-    transition: none;
-  }
-
-  /* HUD polish is decorative: pills appear instantly, nothing pulses,
-   * flickers or pops — values still update, just without motion */
-  .hud-pause,
-  .hud-pill,
-  .hud-pill.is-pulse,
-  .hud-heart.just-lost,
-  .hud-pill--streak.is-hot .hud-icon--flame {
-    animation: none;
-  }
-
-  .hud-progress__fill {
-    transition: none;
-  }
-
-  /* scenery parallax is decorative — freeze it (js also skips setting it) */
   .scene,
-  .scenery {
-    transition: none;
-  }
+  .player,
+  .hud-level__fill,
+  .tip-card,
+  .hud-pause,
+  .btn { transition: none; }
 
   .player.lean-left,
-  .player.lean-right {
-    transform: translateX(-50%);
-  }
+  .player.lean-right { transform: translateX(-50%); }
 
-  /* dust is pure decoration — js stops spawning it too */
-  .dust-puff {
-    display: none;
-  }
-
-  /* the JS side also switches to a slow two-frame loop in this mode */
   .player.is-running .player-bob,
-  .player.is-running .player-shadow {
-    animation: none;
-  }
+  .player.is-running .player-shadow,
+  .player.player-wrong .player-img,
+  .hud-heart.just-lost,
+  .hud-pill.is-pulse,
+  .hud-pill--streak.is-hot .hud-icon--flame,
+  .answer-gate.is-correct .answer-gate__art,
+  .score-pop.is-visible { animation: none; }
 
-  .answer-gate.is-correct .answer-gate__art {
-    animation: none;
-  }
-
-  .btn {
-    transition: none;
-  }
+  .dust-puff { display: none; }
 }
