@@ -425,6 +425,7 @@ let engine = null;
 let selectedMode = GAME_MODES.LEARN;
 let currentQuestionSentence = '';
 let currentScreen = 'start';
+let pauseReturnFocus = null;
 let gateVisualProgress = 0; // frozen while not PLAYING so gates don't snap back
 let rafId = null;
 let lastFrameTime = null;
@@ -656,7 +657,24 @@ function showScreen(name) {
  * pause/resume decisions stay in the engine)
  */
 function renderPause(visible) {
+  const wasHidden = dom.overlayPause.classList.contains('hidden');
   dom.overlayPause.classList.toggle('hidden', !visible);
+  if (visible && wasHidden) {
+    pauseReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    requestAnimationFrame(() => dom.btnResume.focus());
+  } else if (!visible && !wasHidden) {
+    const target = pauseReturnFocus;
+    pauseReturnFocus = null;
+    requestAnimationFrame(() => {
+      if (
+        target?.isConnected &&
+        currentScreen === 'game' &&
+        !dom.screenGame.classList.contains('hidden')
+      ) {
+        target.focus();
+      }
+    });
+  }
 }
 
 /* ========================================================================
@@ -1957,7 +1975,10 @@ let runtimeRunFrames = [{ ...RUN_PHASES[STABLE_RUN_FRAME_INDEX] }];
  * flickers. Each WebP may fall back to its PNG master, but the game never
  * cycles an incomplete sequence: one missing phase selects a stable pose.
  */
-const RUN_FRAME_PRELOAD_TIMEOUT_MS = 4500;
+// Eight high-resolution frames can take several seconds to decode together on
+// a cold mobile cache. Keep a finite escape hatch for broken assets without
+// discarding a valid run cycle on its first load.
+const RUN_FRAME_PRELOAD_TIMEOUT_MS = 15000;
 
 function loadDecodedImage(src) {
   return new Promise((resolve, reject) => {

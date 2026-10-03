@@ -1427,6 +1427,9 @@ body.debug .answer-gate .gate-key {
   .hud { grid-template-columns: auto 78px minmax(0, 1fr); }
   .hud-pause { width: 35px; }
   .hud-pill--level { width: 84px; }
+  .hud-pill--level .hud-icon { width: 18px; height: 18px; }
+  .hud-pill--level .hud-pill__stack { gap: 2px; }
+  .hud-pill--level .hud-pill__text { font-size: 0.68rem; }
   .hud-pill--progress { width: 78px; }
   .sentence-wrap { min-height: 84px; }
   .sentence { font-size: 1.05rem; }
