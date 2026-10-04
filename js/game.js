@@ -347,8 +347,9 @@ const ROAD_DETAIL_SEEDS = Object.freeze([
   Object.freeze({ asset: 'branch', family: 'wood', zone: 'edge', side: 1, depth: 0.96, laneOffset: 1.34, rot: -13, size: 0.82, alpha: 0.52, density: 0 }),
 ]);
 
-/** Motion tuning for the world layer (visual only — never gameplay). */
+/** Shared approach pacing plus state-specific world-motion tuning. */
 const ROAD_MOTION = {
+  playingTimeScale: 1.6,
   markerMultiplier: 1,
   detailMultiplier: 1,
   feedbackBurstS: 0.1,
@@ -363,41 +364,28 @@ const ROAD_MOTION = {
 };
 
 /**
- * Side-scenery depth cues. The painted scene remains the visual anchor; only
- * lightweight overlays move. Every ratio multiplies the same worldAdvance as
- * the road, so PLAYING is steady and pause/feedback inherit the world state.
+ * Matched left/right scenery frames. Two decoded images per side are mounted
+ * and crossfaded; the shared phase keeps both banks moving as one landscape.
  */
-const SCENERY_PARALLAX = Object.freeze({
-  far: 0.035,
-  mid: 0.28,
-  near: Object.freeze({ desktop: 0.72, tablet: 0.74, mobile: 0.82 }),
+const SIDE_SCENERY_FRAMES = Object.freeze({
+  left: Object.freeze([
+    'assets/environment/side-scenery/left-side-01.webp',
+    'assets/environment/side-scenery/left-side-02.webp',
+    'assets/environment/side-scenery/left-side-03.webp',
+    'assets/environment/side-scenery/left-side-04.webp',
+  ]),
+  right: Object.freeze([
+    'assets/environment/side-scenery/right-side-01.webp',
+    'assets/environment/side-scenery/right-side-02.webp',
+    'assets/environment/side-scenery/right-side-03.webp',
+    'assets/environment/side-scenery/right-side-04.webp',
+  ]),
 });
 
-/** Active objects per side. The pool is built once at desktop capacity. */
-const SCENERY_DENSITY = Object.freeze({
-  desktop: Object.freeze({ mid: 4, near: 8 }),
-  tablet: Object.freeze({ mid: 2, near: 4 }),
-  mobile: Object.freeze({ mid: 1, near: 3 }),
+const SIDE_SCENERY_PLAYBACK = Object.freeze({
+  framesPerRoadDepth: 1.55,
+  reducedMotionFactor: 0.14,
 });
-
-const SCENERY_TYPES = Object.freeze({
-  mid: Object.freeze(['tree', 'bush', 'fence', 'hay']),
-  near: Object.freeze(['fence', 'grass', 'bush', 'rock', 'flowers', 'hay']),
-});
-
-const SCENERY_BASE_WIDTH_PX = Object.freeze({
-  fence: 118,
-  tree: 74,
-  bush: 84,
-  grass: 78,
-  rock: 68,
-  flowers: 82,
-  hay: 62,
-});
-
-const SCENERY_LAYOUT_SCALE = Object.freeze({ desktop: 1, tablet: 0.9, mobile: 0.78 });
-
-const SCENERY_DEPTH_LIMIT = 1.055;
 
 /** Sparse bonus collectibles. These values intentionally live in one place:
  * coins are a brief surprise between learning decisions, never a road trail. */
@@ -447,6 +435,13 @@ const PRELOAD_ASSETS = Object.freeze({
       kind: 'road-detail',
       candidates: Object.freeze([detail.src]),
     })),
+    ...Object.entries(SIDE_SCENERY_FRAMES).flatMap(([side, frames]) =>
+      frames.map((src, index) => Object.freeze({
+        id: `side-scenery-${side}-${index + 1}`,
+        kind: 'side-scenery',
+        candidates: Object.freeze([src]),
+      })),
+    ),
     Object.freeze({
       id: 'fox-flying-back',
       kind: 'player',
@@ -524,13 +519,11 @@ const world = {
   dusts: [],
   dustIdx: 0,
   dustTimer: 0,
-  scenery: {
-    farLayer: null,
-    midLayer: null,
-    nearLayer: null,
-    mid: [],
-    near: [],
-    farPhase: 0,
+  sideScenery: {
+    roots: { left: null, right: null },
+    layers: { left: [], right: [] },
+    phase: 0,
+    renderedIndex: -1,
   },
   playerLane: 1,
   gate: { depth: 0, spawnFade: 0 },
@@ -566,20 +559,6 @@ function projectRoadPoint(depth, laneOffset = 0) {
     scale: roadHalfWidth / world.playerHalfWidth,
     t,
     depth: safeDepth,
-  };
-}
-
-/** Project a decorative object just beyond the active road shoulder. */
-function projectSceneryPoint(depth, side, edgeOffset) {
-  const roadPoint = projectRoadPoint(depth, 0);
-  const t = clamp01(roadPoint.t);
-  const clearance = lerp(0.012, 0.038, t);
-  const perspectiveOffset = edgeOffset * lerp(0.42, 1, t);
-  return {
-    ...roadPoint,
-    x: world.centerX + side * (
-      roadPoint.roadHalfWidth + clearance + perspectiveOffset
-    ),
   };
 }
 
@@ -1315,85 +1294,32 @@ function nextRoadDetailRandom(detail) {
   return detail.randomState / 4294967296;
 }
 
-function nextSceneryRandom(item) {
-  item.randomState = (Math.imul(item.randomState, 1664525) + 1013904223) >>> 0;
-  return item.randomState / 4294967296;
-}
+function buildSideSceneryWorld() {
+  if (!dom.scene || world.sideScenery.roots.left) return;
 
-function randomizeSceneryObject(item) {
-  const types = SCENERY_TYPES[item.layer];
-  let typeIndex = Math.floor(nextSceneryRandom(item) * types.length);
-  if (types.length > 1 && types[typeIndex] === item.type) {
-    typeIndex = (typeIndex + 1) % types.length;
+  for (const side of ['left', 'right']) {
+    const root = document.createElement('div');
+    root.className = `side-scenery side-scenery--${side}`;
+    root.setAttribute('aria-hidden', 'true');
+
+    const layers = [0, 1].map((slot) => {
+      const image = document.createElement('img');
+      image.className = 'side-scenery__frame';
+      image.alt = '';
+      image.draggable = false;
+      image.decoding = 'async';
+      image.loading = 'eager';
+      image.dataset.slot = String(slot);
+      root.appendChild(image);
+      return image;
+    });
+
+    dom.scene.appendChild(root);
+    world.sideScenery.roots[side] = root;
+    world.sideScenery.layers[side] = layers;
   }
-  item.type = types[typeIndex];
-  item.edgeOffset = item.layer === 'mid'
-    ? lerp(0.022, 0.078, nextSceneryRandom(item))
-    : lerp(0.018, 0.108, nextSceneryRandom(item));
-  item.size = item.layer === 'mid'
-    ? lerp(0.76, 0.98, nextSceneryRandom(item))
-    : lerp(0.82, 1.14, nextSceneryRandom(item));
-  const maxRotation = item.layer === 'mid' ? 2.2 : 4;
-  item.rotation = lerp(-maxRotation, maxRotation, nextSceneryRandom(item));
-  item.alpha = item.layer === 'mid'
-    ? lerp(0.56, 0.74, nextSceneryRandom(item))
-    : lerp(0.7, 0.9, nextSceneryRandom(item));
-  item.el.className =
-    `scenery-object scenery-object--${item.type} ` +
-    `scenery-object--${item.side < 0 ? 'left' : 'right'}`;
-  item.el.dataset.sceneryType = item.type;
-}
 
-function buildSceneryWorld() {
-  if (!dom.scene || world.scenery.farLayer) return;
-
-  const makeLayer = (name) => {
-    const layer = document.createElement('div');
-    layer.className = `scenery-layer scenery-${name}`;
-    layer.setAttribute('aria-hidden', 'true');
-    dom.scene.appendChild(layer);
-    return layer;
-  };
-
-  world.scenery.farLayer = makeLayer('far');
-  world.scenery.midLayer = makeLayer('mid');
-  world.scenery.nearLayer = makeLayer('near');
-
-  const buildPool = (layerName, countPerSide, container) => {
-    for (const side of [-1, 1]) {
-      for (let slot = 0; slot < countPerSide; slot += 1) {
-        const el = document.createElement('div');
-        el.setAttribute('aria-hidden', 'true');
-        container.appendChild(el);
-        const stagger = side > 0 ? 0.5 : 0;
-        const depth = 0.025 + ((slot + stagger) / countPerSide) * 0.97;
-        const item = {
-          el,
-          layer: layerName,
-          side,
-          slot,
-          depth,
-          active: true,
-          type: '',
-          edgeOffset: 0,
-          size: 1,
-          rotation: 0,
-          alpha: 1,
-          randomState: (
-            0x6d2b79f5 ^
-            Math.imul(slot + 1, 0x85ebca6b) ^
-            Math.imul(side + 2, 0xc2b2ae35) ^
-            (layerName === 'near' ? 0x9e3779b9 : 0)
-          ) >>> 0,
-        };
-        randomizeSceneryObject(item);
-        world.scenery[layerName].push(item);
-      }
-    }
-  };
-
-  buildPool('mid', SCENERY_DENSITY.desktop.mid, world.scenery.midLayer);
-  buildPool('near', SCENERY_DENSITY.desktop.near, world.scenery.nearLayer);
+  renderSideScenery();
 }
 
 function recycleRoadDetail(detail) {
@@ -1430,7 +1356,7 @@ function buildRoadWorld() {
   const layer = roadLayer();
   if (!layer) return;
   world.built = true;
-  buildSceneryWorld();
+  buildSideSceneryWorld();
 
   const make = (cls) => {
     const el = document.createElement('div');
@@ -1565,23 +1491,6 @@ function rebuildWorldGeometry() {
     detail.el.hidden = !detail.active;
     sizeRoadDetail(detail, laneWidthAtPlayer);
   });
-  const sceneryDensity = SCENERY_DENSITY[world.layoutName] ?? SCENERY_DENSITY.desktop;
-  for (const layerName of ['mid', 'near']) {
-    const poolSize = SCENERY_DENSITY.desktop[layerName];
-    const activeCount = sceneryDensity[layerName];
-    const activeSlots = new Set(
-      Array.from(
-        { length: activeCount },
-        (_, index) => Math.round(index * poolSize / activeCount) % poolSize,
-      ),
-    );
-    for (const item of world.scenery[layerName]) {
-      // Keep lower-density layouts evenly spread through depth instead of
-      // activating one clustered prefix of the desktop pool.
-      item.active = activeSlots.has(item.slot);
-      item.el.hidden = !item.active;
-    }
-  }
   const dustBase = Math.max(10, Math.min(28, world.W * 0.02));
   world.dusts.forEach((p) => {
     p.el.style.width = `${(dustBase * p.size).toFixed(1)}px`;
@@ -1690,7 +1599,7 @@ function drawCodedRoad(layout) {
  * changes); keeps the world intact across resizes and breakpoints. */
 function renderWorldStatic() {
   if (!world.built || world.W < 40) return;
-  renderSceneryLayers();
+  renderSideScenery();
   for (const marker of world.markers) renderMarker(marker);
   for (const detail of world.details) renderRoadDetail(detail);
   for (const p of world.dusts) renderDust(p);
@@ -1725,65 +1634,66 @@ function renderRoadDetail(detail) {
   detail.el.style.opacity = (detail.alpha * visibility * (0.48 + 0.52 * p.t)).toFixed(2);
 }
 
-function renderFarScenery() {
-  if (!world.scenery.farLayer) return;
-  const drift = Math.sin(world.scenery.farPhase * Math.PI * 2) * 1.25;
-  world.scenery.farLayer.style.transform =
-    `translate3d(0, ${drift.toFixed(2)}px, 0) scale(1.008)`;
-}
+function renderSideScenery() {
+  if (!world.sideScenery.roots.left) return;
 
-function renderSceneryObject(item) {
-  if (!item.active) return;
-  const p = projectSceneryPoint(item.depth, item.side, item.edgeOffset);
-  const layerScale = item.layer === 'mid' ? 0.72 : 1;
-  const scale = Math.max(0.12, p.scale * item.size * layerScale);
-  const baseWidth = SCENERY_BASE_WIDTH_PX[item.type] ?? 84;
-  const layoutScale = SCENERY_LAYOUT_SCALE[world.layoutName] ?? 1;
-  const objectHalfWidth = (baseWidth * layoutScale * scale * 0.5) / world.W;
-  const innerEdgeX = p.x;
-  // projectSceneryPoint clears the shoulder; adding the sprite half-width
-  // keeps the full object, not merely its center, outside the active road.
-  p.x += item.side * objectHalfWidth;
-  const horizonFade = clamp01((p.t - 0.012) / 0.13);
-  const exitFade = 1 - clamp01((item.depth - 0.985) / 0.07);
-  const shoulderRoom = Math.max(0, 0.5 - Math.abs(innerEdgeX - world.centerX));
-  const edgeFade = clamp01(shoulderRoom / Math.max(0.001, objectHalfWidth * 2));
-  const opacity = item.alpha * horizonFade * exitFade * edgeFade;
-  const perspectiveTurn = item.type === 'fence' ? item.side * p.t * 1.1 : 0;
-  item.el.style.zIndex = String(1 + Math.round(p.t * 60));
-  item.el.style.transform =
-    `translate3d(${(p.x * world.W).toFixed(1)}px, ${(p.y * world.H).toFixed(1)}px, 0) ` +
-    `translate(-50%, -100%) rotate(${(item.rotation + perspectiveTurn).toFixed(2)}deg) ` +
-    `scale(${scale.toFixed(3)})`;
-  item.el.style.opacity = opacity.toFixed(3);
-}
+  const frameCount = SIDE_SCENERY_FRAMES.left.length;
+  const phase = ((world.sideScenery.phase % frameCount) + frameCount) % frameCount;
+  const currentIndex = Math.floor(phase);
+  const nextIndex = (currentIndex + 1) % frameCount;
+  const frameProgress = phase - currentIndex;
+  const blend = frameProgress * frameProgress * (3 - 2 * frameProgress);
 
-function renderSceneryLayers() {
-  renderFarScenery();
-  for (const item of world.scenery.mid) renderSceneryObject(item);
-  for (const item of world.scenery.near) renderSceneryObject(item);
-}
-
-function updateSceneryMotion(worldAdvance) {
-  if (!world.scenery.farLayer || worldAdvance <= 0) return;
-  world.scenery.farPhase =
-    (world.scenery.farPhase + worldAdvance * SCENERY_PARALLAX.far) % 1;
-  renderFarScenery();
-
-  for (const layerName of ['mid', 'near']) {
-    const ratio = layerName === 'mid'
-      ? SCENERY_PARALLAX.mid
-      : SCENERY_PARALLAX.near[world.layoutName];
-    for (const item of world.scenery[layerName]) {
-      if (!item.active) continue;
-      item.depth += worldAdvance * ratio;
-      if (item.depth >= SCENERY_DEPTH_LIMIT) {
-        item.depth = 0.025 + (item.depth - SCENERY_DEPTH_LIMIT);
-        randomizeSceneryObject(item);
-      }
-      renderSceneryObject(item);
+  if (world.sideScenery.renderedIndex !== currentIndex) {
+    for (const side of ['left', 'right']) {
+      const sources = SIDE_SCENERY_FRAMES[side];
+      const layers = world.sideScenery.layers[side];
+      layers[0].src = sources[currentIndex];
+      layers[1].src = sources[nextIndex];
     }
+    world.sideScenery.renderedIndex = currentIndex;
   }
+
+  const cycleProgress = phase / frameCount;
+  const driftWave = 0.5 - Math.cos(cycleProgress * Math.PI * 2) * 0.5;
+  for (const side of ['left', 'right']) {
+    const direction = side === 'left' ? -1 : 1;
+    const layers = world.sideScenery.layers[side];
+    layers[0].style.opacity = (1 - blend).toFixed(3);
+    layers[1].style.opacity = blend.toFixed(3);
+    layers[0].style.transform =
+      `translate3d(${(direction * frameProgress * 3).toFixed(2)}px, ` +
+      `${(frameProgress * 4).toFixed(2)}px, 0) ` +
+      `scale(${(1 + frameProgress * 0.008).toFixed(4)})`;
+    layers[1].style.transform =
+      `translate3d(${(direction * (frameProgress - 1) * 3).toFixed(2)}px, ` +
+      `${((frameProgress - 1) * 4).toFixed(2)}px, 0) ` +
+      `scale(${(1 + (frameProgress - 1) * 0.008).toFixed(4)})`;
+    world.sideScenery.roots[side].style.setProperty(
+      '--side-drift-x',
+      `${(direction * driftWave * 5).toFixed(2)}px`,
+    );
+    world.sideScenery.roots[side].style.setProperty(
+      '--side-drift-y',
+      `${(driftWave * 3).toFixed(2)}px`,
+    );
+    world.sideScenery.roots[side].style.setProperty(
+      '--side-drift-scale',
+      (1 + driftWave * 0.008).toFixed(4),
+    );
+  }
+}
+
+function updateSideSceneryMotion(worldAdvance) {
+  if (!world.sideScenery.roots.left || worldAdvance <= 0) return;
+  const motionFactor = prefersReducedMotion
+    ? SIDE_SCENERY_PLAYBACK.reducedMotionFactor
+    : 1;
+  world.sideScenery.phase = (
+    world.sideScenery.phase +
+    worldAdvance * SIDE_SCENERY_PLAYBACK.framesPerRoadDepth * motionFactor
+  ) % SIDE_SCENERY_FRAMES.left.length;
+  renderSideScenery();
 }
 
 function renderDust(puff) {
@@ -1814,7 +1724,7 @@ function updateWorldMotion(dt, rate, playerAnimFactor) {
   world.effectiveSpeed = world.baseSpeed * rate;
 
   if (worldAdvance > 0) {
-    updateSceneryMotion(worldAdvance);
+    updateSideSceneryMotion(worldAdvance);
     for (const marker of world.markers) {
       marker.depth += markerAdvance;
       if (marker.depth >= 1) marker.depth -= 1;
@@ -2703,6 +2613,18 @@ function handleRunnerPointerMove(event) {
   renderLaneDrag(deltaX);
 }
 
+function handleDesktopCursorFollow(event) {
+  if (
+    event.pointerType !== 'mouse' ||
+    world.layoutName !== 'desktop' ||
+    !laneGesturesAllowed() ||
+    isLaneGestureBlocked(event)
+  ) return;
+
+  const lane = laneAtClientX(event.clientX);
+  if (lane !== world.playerLane) movePlayerToLane(lane);
+}
+
 function finishLaneGesture(event, cancelled = false) {
   const gesture = laneGesture;
   if (!gesture || event.pointerId !== gesture.pointerId) return;
@@ -2840,6 +2762,7 @@ function bindUiEvents() {
 
   // The full road accepts coarse-pointer taps, swipes and tactile dragging.
   dom.runner.addEventListener('pointerdown', handleRunnerPointerDown);
+  dom.runner.addEventListener('pointermove', handleDesktopCursorFollow);
   dom.runner.addEventListener('pointermove', handleRunnerPointerMove, { passive: false });
   dom.runner.addEventListener('pointerup', (event) => finishLaneGesture(event));
   dom.runner.addEventListener('pointercancel', (event) => finishLaneGesture(event, true));
@@ -3678,8 +3601,12 @@ function loop(now) {
     if (!engine) return;
 
     const visualDeltaMs = Math.min(deltaMs, ROAD_MOTION.maxDeltaMs);
+    const playingDeltaMs = Math.min(
+      deltaMs * ROAD_MOTION.playingTimeScale,
+      ROAD_MOTION.maxDeltaMs,
+    );
     if (engine.state === GAME_STATES.PLAYING) {
-      engine.update(visualDeltaMs);
+      engine.update(playingDeltaMs);
       // update() can auto-resolve the question (PLAYING → FEEDBACK) and the
       // engine resets its progress — re-check before adopting the value, or
       // the gates would flash back to the horizon on timed resolutions.
@@ -3699,8 +3626,12 @@ function loop(now) {
         updateDebugBar(now);
         return;
       }
-      // Delta is clamped so a background tab can never teleport the road.
-      const dt = visualDeltaMs / 1000;
+      // PLAYING shares one accelerated, clamped clock across the gate and
+      // moving world. FEEDBACK keeps its intentional real-time slowdown.
+      const worldDeltaMs = state === GAME_STATES.PLAYING
+        ? playingDeltaMs
+        : visualDeltaMs;
+      const dt = worldDeltaMs / 1000;
 
       // Gate pass-through first: it owns the feedback clock (feedbackT).
       updateGateVisual(dt, state);
@@ -3710,7 +3641,7 @@ function loop(now) {
       updatePlayerFlightAnimation(visualDeltaMs, state);
 
       updateWorldMotion(dt, rate, rate);
-      updateCoins(visualDeltaMs, dt, rate, state);
+      updateCoins(worldDeltaMs, dt, rate, state);
       renderGates();
       renderLaneGuides();
       updateDebugBar(now);
