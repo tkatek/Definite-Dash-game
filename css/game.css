@@ -138,7 +138,7 @@ body {
   font: 0.84rem/1.5 ui-monospace, Consolas, monospace;
 }
 
-/* ========================================================================== 
+/* ==========================================================================
  * Gameplay shell and projected road
  * ========================================================================== */
 
@@ -1231,6 +1231,8 @@ body.debug .answer-gate .gate-key {
 .answer-dock__choice:disabled { cursor: default; }
 .answer-dock__choice:focus-visible { outline-width: 3px; outline-offset: 2px; }
 
+.answer-dock__icon { display: none; }
+
 .answer-dock__label,
 .answer-dock__sublabel {
   max-width: 100%;
@@ -2020,6 +2022,519 @@ body.debug .answer-gate .gate-key {
   .answer-dock__sublabel { font-size: 0.46rem; letter-spacing: 0.025em; }
   .gates { --gate-w: 27cqw; }
   .player { width: min(136px, 30cqh); }
+}
+
+/* ==========================================================================
+ * Phone gameplay composition — reference-matched visual production pass
+ * --------------------------------------------------------------------------
+ * These values intentionally override the earlier compact-phone fallbacks.
+ * The road projection and lane map remain owned by game.js; this block only
+ * composes the phone HUD, prompt, fox, hint and screen-space answer controls.
+ * ========================================================================== */
+
+@media (max-width: 680px) {
+  .screen-game {
+    --mobile-answer-height: clamp(82px, 10.4dvh, 92px);
+    --mobile-answer-gap: clamp(5px, 1.5vw, 7px);
+  }
+
+  .runner {
+    --player-bottom: clamp(156px, 19.5dvh, 184px);
+  }
+
+  .scene { background-position: center center; }
+
+  /* Let the painted road remain the visual source of truth. The projected
+   * finish adds moving texture without reading as a second inner trapezoid. */
+  .runner[data-road-layout="mobile"] .road-edge { opacity: 0.2; }
+  .runner[data-road-layout="mobile"] .road-surface { opacity: 0.3; }
+  .runner[data-road-layout="mobile"] .road-shading { opacity: 0.38; }
+  .runner[data-road-layout="mobile"] .road-tracks { opacity: 0.46; }
+
+  .runner[data-road-layout="mobile"] .side-scenery {
+    bottom: -1%;
+    width: 42%;
+    height: 88%;
+  }
+
+  /* Keep the parallax artwork at its authored scale, but expose only a thin
+   * outer-edge band: 29% of this 42%-wide canvas is about 12% of the phone.
+   * The short feather removes the old semi-transparent "panel" over the road. */
+  .runner[data-road-layout="mobile"] .side-scenery--left {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      #000 0 24%,
+      rgba(0, 0, 0, 0.68) 26%,
+      transparent 29%
+    );
+    mask-image: linear-gradient(
+      to right,
+      #000 0 24%,
+      rgba(0, 0, 0, 0.68) 26%,
+      transparent 29%
+    );
+  }
+
+  .runner[data-road-layout="mobile"] .side-scenery--right {
+    -webkit-mask-image: linear-gradient(
+      to left,
+      #000 0 24%,
+      rgba(0, 0, 0, 0.68) 26%,
+      transparent 29%
+    );
+    mask-image: linear-gradient(
+      to left,
+      #000 0 24%,
+      rgba(0, 0, 0, 0.68) 26%,
+      transparent 29%
+    );
+  }
+
+  .runner[data-road-layout="mobile"] .side-scenery__frame {
+    filter: none;
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0 15%,
+      rgba(0, 0, 0, 0.72) 29%,
+      #000 43%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0 15%,
+      rgba(0, 0, 0, 0.72) 29%,
+      #000 43%
+    );
+  }
+
+  .game-top {
+    gap: 8px;
+    padding: max(6px, env(safe-area-inset-top)) max(7px, env(safe-area-inset-right)) 0
+      max(7px, env(safe-area-inset-left));
+  }
+
+  /* One compact game HUD row: pause + wood level, progress, coin + streak. */
+  .hud {
+    --hud-scale: 0.62;
+    width: 100%;
+    grid-template-columns: auto minmax(68px, 1fr) auto;
+    grid-template-rows: 50px;
+    gap: 4px;
+  }
+
+  .hud-group--main {
+    grid-column: 1;
+    grid-row: 1;
+    gap: 3px;
+  }
+
+  .hud-pill--progress {
+    grid-column: 2;
+    grid-row: 1;
+    width: 100%;
+    min-width: 68px;
+    height: 46px;
+    align-self: center;
+    padding-inline: 6px;
+  }
+
+  .hud-group--stats,
+  .hud-group--stats:has(.hud-pill--lives.hidden) {
+    width: auto;
+    height: 42px;
+    display: flex;
+    grid-column: 3;
+    grid-row: 1;
+    gap: 3px;
+    align-items: center;
+    justify-self: end;
+  }
+
+  .hud-pause,
+  .hud-pill {
+    border: 2px solid rgba(157, 222, 255, 0.92);
+    background: linear-gradient(180deg, #36a9f6 0%, #087bd7 48%, #0752ad 100%);
+    box-shadow:
+      inset 0 2px rgba(255, 255, 255, 0.5),
+      inset 0 -6px 9px rgba(2, 36, 103, 0.24),
+      0 3px 0 rgba(4, 52, 120, 0.82),
+      0 5px 9px rgba(5, 43, 94, 0.24);
+  }
+
+  .hud-pause {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+  }
+
+  .hud-pill {
+    min-height: 40px;
+    gap: 4px;
+  }
+
+  .hud-pill--level {
+    width: 70px;
+    height: 46px;
+    padding: 5px 7px;
+    border-color: #8b4f20;
+    border-radius: 16px;
+    background:
+      linear-gradient(96deg, transparent 0 22%, rgba(109, 49, 14, 0.18) 23% 25%, transparent 26% 68%, rgba(255, 224, 139, 0.13) 69% 72%, transparent 73%),
+      linear-gradient(180deg, #d98d3c 0%, #ad5c22 53%, #7b3716 100%);
+    box-shadow:
+      inset 0 2px rgba(255, 225, 159, 0.45),
+      inset 0 -6px 8px rgba(76, 27, 8, 0.28),
+      0 3px 0 #57240d,
+      0 5px 8px rgba(62, 34, 15, 0.25);
+  }
+
+  .hud-pill--level .hud-icon { display: none; }
+  .hud-pill--level .hud-pill__stack { gap: 3px; }
+  .hud-pill--level .hud-pill__text {
+    color: #fff4b8;
+    font-size: 0.72rem;
+    text-shadow: 0 2px 0 #66300f;
+  }
+
+  .hud-level__track { height: 5px; background: rgba(65, 24, 8, 0.52); }
+  .hud-pill--progress .hud-icon { width: 18px; height: 18px; }
+  .hud-pill--progress .hud-pill__stack { gap: 4px; }
+  .hud-pill--progress .hud-pill__text--strong { font-size: 0.78rem; }
+  .hud-progress__segments { gap: 2px; }
+  .hud-progress__segment { height: 7px; }
+
+  .hud-group--stats > .hud-pill {
+    min-height: 40px;
+    height: 40px;
+    padding: 4px 5px;
+  }
+
+  .hud-pill--score { width: 48px; min-width: 48px; }
+  .hud-pill--streak { width: 52px; min-width: 52px; }
+  .hud-pill--lives { width: 58px; min-width: 58px; gap: 1px; }
+  .hud-group--stats .hud-icon { width: 20px; height: 20px; }
+  .hud-group--stats .hud-pill__value { font-size: 0.78rem; }
+  .hud-streak__label { display: none; }
+  .hud-heart { width: 16px; height: 16px; }
+
+  /* Arcade adds three hearts; tighten only that HUD variant so all five
+   * status groups still share one clean row on a 360px screen. */
+  .hud:has(.hud-pill--lives:not(.hidden)) .hud-pause {
+    width: 44px;
+    height: 46px;
+  }
+
+  .hud:has(.hud-pill--lives:not(.hidden)) .hud-group--main { gap: 3px; }
+  .hud:has(.hud-pill--lives:not(.hidden)) .hud-pill--level { width: 64px; }
+  .hud:has(.hud-pill--lives:not(.hidden)) .hud-pill--progress {
+    min-width: 56px;
+    padding-inline: 4px;
+  }
+
+  .hud:has(.hud-pill--lives:not(.hidden)) .hud-group--stats { gap: 2px; }
+  .hud:has(.hud-pill--lives:not(.hidden)) .hud-pill--score {
+    width: 42px;
+    min-width: 42px;
+  }
+  .hud:has(.hud-pill--lives:not(.hidden)) .hud-pill--streak {
+    width: 44px;
+    min-width: 44px;
+  }
+  .hud:has(.hud-pill--lives:not(.hidden)) .hud-pill--lives {
+    width: 52px;
+    min-width: 52px;
+  }
+  .hud:has(.hud-pill--lives:not(.hidden)) .hud-group--stats .hud-icon {
+    width: 17px;
+    height: 17px;
+  }
+  .hud:has(.hud-pill--lives:not(.hidden)) .hud-heart {
+    width: 14px;
+    height: 14px;
+  }
+
+  /* Warm stitched prompt card with the same hierarchy as the reference. */
+  .sentence-wrap {
+    position: relative;
+    width: min(100%, calc(100vw - 20px));
+    max-width: none;
+    min-height: clamp(108px, 13.5dvh, 120px);
+    gap: 7px;
+    padding: 13px 18px 12px;
+    border: 2px solid rgba(228, 199, 151, 0.88);
+    border-radius: clamp(24px, 7vw, 28px);
+    background: rgba(255, 250, 240, 0.975);
+    box-shadow:
+      0 7px 0 rgba(129, 85, 36, 0.12),
+      0 11px 20px rgba(25, 65, 94, 0.2),
+      inset 0 2px rgba(255, 255, 255, 0.92);
+  }
+
+  .sentence-wrap::before {
+    content: "";
+    position: absolute;
+    inset: 7px;
+    border: 1px dashed rgba(206, 157, 99, 0.52);
+    border-radius: calc(clamp(24px, 7vw, 28px) - 7px);
+    pointer-events: none;
+  }
+
+  .sentence,
+  .sentence-instruction { position: relative; z-index: 1; }
+
+  .sentence {
+    color: #0c3276;
+    font-size: clamp(1.08rem, 5.15vw, 1.42rem);
+    line-height: 1.16;
+    letter-spacing: -0.012em;
+  }
+
+  .sentence .blank {
+    min-width: 3.5em;
+    border-bottom: 4px solid #0c3276;
+  }
+
+  .sentence-instruction {
+    color: #5278ad;
+    font-size: clamp(0.74rem, 3.15vw, 0.86rem);
+    line-height: 1.1;
+  }
+
+  /* Large, tightly grouped artwork remains projection-driven. These are safe
+   * CSS fallbacks for the first paint before JS publishes --gate-road-w. */
+  .gates { --gate-w: 30cqw; --gate-h-cap: 27cqh; }
+  .answer-gate__art { filter: none; }
+  .answer-gate__label { font-size: clamp(13px, 13cqw, 38px); }
+  .answer-gate[data-category="none"] .answer-gate__label {
+    font-size: clamp(11px, 10.4cqw, 32px);
+  }
+
+  .road-guide {
+    width: clamp(82px, 22vw, 94px);
+    height: clamp(58px, 7.5dvh, 68px);
+    gap: 1px;
+    opacity: 0.9;
+    filter: drop-shadow(0 2px 1px rgba(64, 42, 20, 0.2));
+  }
+
+  .road-guide[data-category="none"] { color: #a83cf4; }
+  .road-guide[data-category="indefinite"] { color: #2ed65b; }
+  .road-guide[data-category="definite"] { color: #2b9ff4; }
+
+  /* The approved rear-facing flight sprite sits clear of the fixed dock. */
+  .player {
+    width: clamp(116px, 31.5vw, 136px);
+    --player-flight-lift: -5px;
+  }
+
+  .player-shadow {
+    bottom: 4%;
+    left: 52%;
+    width: 58%;
+    height: 8%;
+    background: radial-gradient(
+      ellipse at center,
+      rgba(54, 42, 30, 0.42) 0%,
+      rgba(54, 42, 30, 0.2) 40%,
+      rgba(54, 42, 30, 0) 74%
+    );
+  }
+
+  /* The dock is lane-ordered by renderAnswerDock; category data attributes
+   * own every color and icon so shuffled questions stay perfectly synced. */
+  .answer-dock {
+    right: max(7px, env(safe-area-inset-right));
+    bottom: 0;
+    left: max(7px, env(safe-area-inset-left));
+    width: auto;
+    gap: var(--mobile-answer-gap);
+    padding: 0 0 max(7px, env(safe-area-inset-bottom));
+    transform: none;
+  }
+
+  .answer-dock__choice {
+    --choice-top: #58c8ff;
+    --choice-mid: #1e9af4;
+    --choice-bottom: #0871d6;
+    --choice-border: #0755a9;
+    --choice-edge: #064487;
+    position: relative;
+    isolation: isolate;
+    min-width: 0;
+    min-height: var(--mobile-answer-height);
+    gap: 4px;
+    overflow: hidden;
+    padding: 7px 3px 8px;
+    border: 3px solid var(--choice-border);
+    border-radius: clamp(17px, 5vw, 20px);
+    background: linear-gradient(
+      180deg,
+      var(--choice-top) 0%,
+      var(--choice-mid) 46%,
+      var(--choice-bottom) 100%
+    );
+    box-shadow:
+      inset 0 3px rgba(255, 255, 255, 0.48),
+      inset 0 -7px rgba(3, 31, 94, 0.18),
+      0 4px 0 var(--choice-edge),
+      0 7px 12px rgba(4, 29, 67, 0.3);
+    transition: transform 120ms ease, border-color 140ms ease, box-shadow 140ms ease;
+  }
+
+  .answer-dock__choice::before {
+    content: "";
+    position: absolute;
+    top: 4px;
+    right: 8px;
+    left: 8px;
+    z-index: -1;
+    height: 28%;
+    border-radius: 999px 999px 45% 45%;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0));
+    opacity: 0.78;
+    pointer-events: none;
+  }
+
+  .answer-dock__choice[data-category="none"] {
+    --choice-top: #b74cff;
+    --choice-mid: #8f28e8;
+    --choice-bottom: #6e18c8;
+    --choice-border: #4a0b93;
+    --choice-edge: #38066f;
+  }
+
+  .answer-dock__choice[data-category="indefinite"] {
+    --choice-top: #57f477;
+    --choice-mid: #20c94b;
+    --choice-bottom: #0b9e35;
+    --choice-border: #067728;
+    --choice-edge: #045c1e;
+  }
+
+  .answer-dock__choice[data-category="definite"] {
+    --choice-top: #58c8ff;
+    --choice-mid: #1e9af4;
+    --choice-bottom: #0871d6;
+    --choice-border: #0755a9;
+    --choice-edge: #064487;
+  }
+
+  .answer-dock__choice:hover:not(:disabled) {
+    border-color: rgba(255, 255, 255, 0.92);
+    background: linear-gradient(
+      180deg,
+      var(--choice-top) 0%,
+      var(--choice-mid) 46%,
+      var(--choice-bottom) 100%
+    );
+  }
+
+  .answer-dock__icon {
+    position: relative;
+    z-index: 1;
+    width: clamp(24px, 7vw, 29px);
+    height: clamp(24px, 7vw, 29px);
+    display: block;
+    flex: none;
+    color: #fff;
+    filter: drop-shadow(0 2px 1px rgba(8, 32, 78, 0.5));
+  }
+
+  .answer-dock__icon svg { display: block; width: 100%; height: 100%; }
+
+  .answer-dock__label {
+    position: relative;
+    z-index: 1;
+    overflow: visible;
+    color: #fff;
+    font-size: 0;
+    line-height: 1;
+    text-shadow: 0 2px 0 rgba(6, 29, 77, 0.52), 0 3px 4px rgba(6, 23, 55, 0.28);
+  }
+
+  .answer-dock__label::after {
+    font-size: clamp(0.76rem, 3.45vw, 0.94rem);
+    font-weight: 900;
+    letter-spacing: -0.015em;
+    white-space: nowrap;
+  }
+
+  .answer-dock__choice[data-category="none"] .answer-dock__label::after { content: "NO ARTICLE"; }
+  .answer-dock__choice[data-category="indefinite"] .answer-dock__label::after { content: "A / AN"; }
+  .answer-dock__choice[data-category="definite"] .answer-dock__label::after { content: "THE"; }
+  .answer-dock__sublabel { display: none; }
+
+  .answer-dock__choice.is-selected {
+    border-color: rgba(255, 255, 255, 0.94);
+    background: linear-gradient(
+      180deg,
+      var(--choice-top) 0%,
+      var(--choice-mid) 46%,
+      var(--choice-bottom) 100%
+    );
+    box-shadow:
+      inset 0 3px rgba(255, 255, 255, 0.62),
+      inset 0 -7px rgba(3, 31, 94, 0.14),
+      0 4px 0 var(--choice-edge),
+      0 0 0 2px rgba(255, 246, 137, 0.62),
+      0 0 16px rgba(255, 236, 92, 0.54),
+      0 8px 13px rgba(4, 29, 67, 0.3);
+    transform: translateY(-2px);
+  }
+
+  .answer-dock__choice.is-correct {
+    border-color: #e8fff0;
+    background: linear-gradient(180deg, #61f58a 0%, #20c94b 48%, #07852c 100%);
+    box-shadow:
+      inset 0 3px rgba(255, 255, 255, 0.58),
+      0 4px 0 #056823,
+      0 0 18px rgba(69, 246, 116, 0.72);
+  }
+
+  .answer-dock__choice.is-wrong {
+    border-color: #ffd7ca;
+    background: linear-gradient(180deg, #ff8c6f 0%, #e3483c 52%, #a61e31 100%);
+    box-shadow:
+      inset 0 3px rgba(255, 255, 255, 0.46),
+      0 4px 0 #761426,
+      0 0 14px rgba(230, 65, 55, 0.58);
+    animation: answer-dock-wrong 300ms ease both;
+  }
+
+  @keyframes answer-dock-wrong {
+    0%, 100% { transform: translateX(0); }
+    28% { transform: translateX(-3px); }
+    62% { transform: translateX(3px); }
+  }
+
+  .mobile-hint {
+    right: max(10px, env(safe-area-inset-right));
+    bottom: max(11px, env(safe-area-inset-bottom));
+  }
+
+  .answer-dock:not(.hidden) ~ .mobile-hint {
+    bottom: calc(var(--mobile-answer-height) + max(18px, env(safe-area-inset-bottom)));
+  }
+
+  .mobile-hint summary {
+    min-width: 80px;
+    min-height: 46px;
+    gap: 6px;
+    padding: 8px 13px;
+    border: 2px solid #1795e2;
+    border-radius: 999px;
+    background: rgba(255, 251, 240, 0.98);
+    box-shadow:
+      inset 0 2px rgba(255, 255, 255, 0.9),
+      0 3px 0 rgba(4, 99, 170, 0.84),
+      0 7px 12px rgba(24, 62, 91, 0.22);
+    color: #0c3276;
+    font-size: 0.82rem;
+  }
+
+  .mobile-hint p {
+    border-color: #1795e2;
+    background: rgba(255, 251, 240, 0.985);
+  }
 }
 
 @media (max-height: 780px) and (min-width: 681px) {

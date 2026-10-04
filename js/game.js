@@ -229,13 +229,15 @@ const ROAD_LAYOUTS = {
     perspectivePower: 2,
     gateStartDepth: 0.02,
     roadShoulder: 0.016,
-    gateSpacingFactor: 0.78,
+    gateSpacingFactor: 0.74,
     gateDecisionSpacingFactor: 1.04,
-    gateSlotFill: 0.9,
-    gateWidthScale: 1.1,
-    gateSizeBoost: 1.18,
+    gateSlotFill: 0.92,
+    gateWidthScale: 1.16,
+    gateSizeBoost: 1.26,
+    gateSizeBoostStart: 0,
+    gateSizeBoostEnd: 0.24,
     minLabelPx: 13,
-    minGateScale: 0.22,
+    minGateScale: 0.28,
     maxGateScale: 1.22,
     markerWidthPx: 7,
     markerHeightPx: 62,
@@ -531,10 +533,6 @@ const world = {
 
 function clamp01(value) {
   return Math.min(1, Math.max(0, value));
-}
-
-function gateVisualDepth(progress) {
-  return clamp01(progress);
 }
 
 function lerp(from, to, amount) {
@@ -1159,6 +1157,8 @@ function renderAnswerDock(laneMap) {
     if (!visuals) return;
     choice.dataset.lane = String(lane);
     choice.dataset.category = category;
+    const icon = choice.querySelector('.answer-dock__icon');
+    if (icon) icon.innerHTML = visuals.icon;
     choice.querySelector('.answer-dock__label').textContent = visuals.answerLabel;
     choice.querySelector('.answer-dock__sublabel').textContent = visuals.answerSublabel;
     choice.setAttribute('aria-label', visuals.aria);
@@ -1447,7 +1447,7 @@ function rebuildWorldGeometry() {
     world.gate.depth = lerp(
       layout.gateStartDepth,
       world.playerDepth,
-      gateVisualDepth(gateVisualProgress),
+      gateVisualProgress,
     );
   }
 
@@ -2070,7 +2070,7 @@ function updateGateVisual(dt, state) {
     g.depth = lerp(
       start,
       world.playerDepth,
-      gateVisualDepth(gateVisualProgress),
+      gateVisualProgress,
     );
     g.spawnFade = Math.min(1, g.spawnFade + dt * RUNNER_GEO.gateSpawnFadePerSecond);
   } else if (state === GAME_STATES.FEEDBACK) {
