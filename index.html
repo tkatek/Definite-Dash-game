@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#1676c1">
   <title>Definite Dash — English Article Runner</title>
-  <link rel="stylesheet" href="css/game.css?v=phone-ui-1">
-  <link rel="stylesheet" href="css/start.css">
+  <link rel="icon" type="image/webp" href="assets/characters/fox-hero.webp">
+  <link rel="stylesheet" href="css/game.css?v=runtime-perf-1">
+  <link rel="stylesheet" href="css/start.css?v=roadside-video-1">
 </head>
 <body class="is-loading">
   <div
@@ -21,10 +22,10 @@
       <div class="game-loader__mascot" aria-hidden="true">
         <img
           id="game-loader-image"
-          src="assets/ui/loader-fox.webp"
+          src="assets/ui/loader-fox-768.webp"
           alt=""
-          width="1254"
-          height="1254"
+          width="768"
+          height="768"
           decoding="async"
           fetchpriority="high"
         >
@@ -214,6 +215,33 @@
              world. The interactive road, moving details, gates and player stay
              independent HTML/CSS layers above it. -->
         <div class="scene" aria-hidden="true"></div>
+        <!-- Native, non-interactive roadside footage supplies the near/mid
+             parallax only. The static scene remains visible underneath as the
+             far world, reduced-motion view and decode/autoplay fallback. -->
+        <div id="roadside-world" class="roadside-world" aria-hidden="true">
+          <div class="roadside-panel roadside-panel--left" data-roadside="left">
+            <video id="roadside-video-left" class="roadside-video"
+                   autoplay muted loop playsinline preload="auto" tabindex="-1"
+                   disablepictureinpicture disableremoteplayback
+                   poster="assets/environment/side-scenery/left-side-01.webp">
+              <source media="(prefers-reduced-motion: no-preference) and ((max-width: 680px) or (max-height: 600px))"
+                      src="assets/environment/video/roadside-left-mobile.mp4" type="video/mp4">
+              <source media="(prefers-reduced-motion: no-preference)"
+                      src="assets/environment/video/roadside-left-400x900.mp4" type="video/mp4">
+            </video>
+          </div>
+          <div class="roadside-panel roadside-panel--right" data-roadside="right">
+            <video id="roadside-video-right" class="roadside-video"
+                   autoplay muted loop playsinline preload="auto" tabindex="-1"
+                   disablepictureinpicture disableremoteplayback
+                   poster="assets/environment/side-scenery/right-side-01.webp">
+              <source media="(prefers-reduced-motion: no-preference) and ((max-width: 680px) or (max-height: 600px))"
+                      src="assets/environment/video/roadside-right-mobile.mp4" type="video/mp4">
+              <source media="(prefers-reduced-motion: no-preference)"
+                      src="assets/environment/video/roadside-right-400x900.mp4" type="video/mp4">
+            </video>
+          </div>
+        </div>
         <!-- A transparent, code-projected road finish aligns the moving lane
              marks, stones, dust and gates with the road painted into the
              responsive scenery plate. Every moving object shares one
@@ -266,10 +294,10 @@
             <div class="player-reaction">
               <div class="player-run">
                 <div class="player-frame">
-                   <img id="player-img" class="player-img"
-                        src="assets/characters/fox-flying-back.png"
+                  <img id="player-img" class="player-img"
+                       src="assets/characters/fox-flying-back-640.webp"
                        alt="" draggable="false" decoding="async"
-                       width="1254" height="1254">
+                       width="640" height="640">
                 </div>
               </div>
             </div>
@@ -504,6 +532,6 @@
 
   </div>
 
-  <script type="module" src="js/game.js?v=phone-ui-1"></script>
+  <script type="module" src="js/game.js?v=roadside-video-2"></script>
 </body>
 </html>

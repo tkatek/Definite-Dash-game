@@ -23,7 +23,110 @@ const DEBUG = false;
 
 const DATA_URL = 'data/game-data.json';
 const CORRECT_RESUME_AUTO_CONTINUE_MS = 600;
-const FLYING_FOX_SRC = 'assets/characters/fox-flying-back.png';
+const CORRECT_FEEDBACK_MAX_MS = 700;
+const FLYING_FOX_SRC = 'assets/characters/fox-flying-back-640.webp';
+
+/* ------------------------------------------------------------------------
+ * Audio — an original, procedural Web Audio palette. No sound is requested
+ * from the network and no AudioContext is created until a real user gesture.
+ * The small synthesized palette keeps first-play latency and memory bounded.
+ * ---------------------------------------------------------------------- */
+
+const AUDIO_VOLUME = Object.freeze({
+  master: 0.76,
+  music: 0.14,
+  ambience: 0, // intentionally omitted: the wind bed already supplies space
+  wind: 0.055,
+  ui: 0.22,
+  lane: 0.18,
+  gate: 0.32,
+  correct: 0.46,
+  wrong: 0.32,
+  coin: 0.26,
+  hint: 0.2,
+  pause: 0.22,
+  levelComplete: 0.44,
+  gameOver: 0.34,
+});
+
+const AUDIO_PRIORITY = Object.freeze({ low: 1, medium: 2, high: 3 });
+const AUDIO_GATE_APPROACH_PROGRESS = 0.72;
+const AUDIO_MAX_TRANSIENT_VOICES = 12;
+
+const AUDIO_CUES = Object.freeze({
+  uiClick: Object.freeze({
+    volume: AUDIO_VOLUME.ui,
+    priority: AUDIO_PRIORITY.medium,
+    cooldownMs: 45,
+    maxVoices: 2,
+  }),
+  laneChange: Object.freeze({
+    volume: AUDIO_VOLUME.lane,
+    priority: AUDIO_PRIORITY.medium,
+    cooldownMs: 100,
+    maxVoices: 1,
+  }),
+  gateApproach: Object.freeze({
+    volume: AUDIO_VOLUME.gate * 0.62,
+    priority: AUDIO_PRIORITY.medium,
+    cooldownMs: 400,
+    maxVoices: 1,
+  }),
+  gatePass: Object.freeze({
+    volume: AUDIO_VOLUME.gate,
+    priority: AUDIO_PRIORITY.high,
+    cooldownMs: 250,
+    maxVoices: 1,
+  }),
+  correct: Object.freeze({
+    volume: AUDIO_VOLUME.correct,
+    priority: AUDIO_PRIORITY.high,
+    cooldownMs: 300,
+    maxVoices: 1,
+  }),
+  wrong: Object.freeze({
+    volume: AUDIO_VOLUME.wrong,
+    priority: AUDIO_PRIORITY.high,
+    cooldownMs: 300,
+    maxVoices: 1,
+  }),
+  coin: Object.freeze({
+    volume: AUDIO_VOLUME.coin,
+    priority: AUDIO_PRIORITY.medium,
+    cooldownMs: 45,
+    maxVoices: 2,
+  }),
+  hint: Object.freeze({
+    volume: AUDIO_VOLUME.hint,
+    priority: AUDIO_PRIORITY.medium,
+    cooldownMs: 180,
+    maxVoices: 1,
+  }),
+  pause: Object.freeze({
+    volume: AUDIO_VOLUME.pause,
+    priority: AUDIO_PRIORITY.medium,
+    cooldownMs: 180,
+    maxVoices: 1,
+  }),
+  resume: Object.freeze({
+    volume: AUDIO_VOLUME.pause,
+    priority: AUDIO_PRIORITY.medium,
+    cooldownMs: 180,
+    maxVoices: 1,
+  }),
+  levelComplete: Object.freeze({
+    volume: AUDIO_VOLUME.levelComplete,
+    priority: AUDIO_PRIORITY.high,
+    cooldownMs: 900,
+    maxVoices: 1,
+  }),
+  gameOver: Object.freeze({
+    volume: AUDIO_VOLUME.gameOver,
+    priority: AUDIO_PRIORITY.high,
+    cooldownMs: 900,
+    maxVoices: 1,
+  }),
+});
 
 /* ------------------------------------------------------------------------
  * Gate visual system — the ONLY place category → gate appearance is mapped.
@@ -103,17 +206,29 @@ const RULE_HINTS = {
  * fox and road agree. Engine rules and collision thresholds never change.
  */
 const RUNNER_GEO = {
-  gateFillByCount: Object.freeze({ 2: 0.84, 3: 0.84 }),
-  gateSafeInsetRatio: 0.015,
+  gateFillByCount: Object.freeze({ 2: 0.84, 3: 0.9 }),
+  gateSafeInsetRatio: 0.0065,
   gateBaseArtWidthPx: 960,
   gateArtAspectRatio: 960 / 930,
   gateMaxWidthPx: 360,
-  gateMaxHeightRatioByLayout: Object.freeze({ desktop: 0.35, tablet: 0.34, mobile: 0.27 }),
-  gateCollisionLeadDepth: 0.02,
+  gateMaxHeightRatioByLayout: Object.freeze({ desktop: 0.35, tablet: 0.34, mobile: 0.33 }),
+  gateCollisionLeadDepth: 0.01,
   gateSpawnFadePerSecond: 5,
+  gatePassThroughSeconds: 0.16,
+  gateExitFadeStartSeconds: 0.1,
   gateExitFadeSeconds: 0.18,
+  gateMaxPassDepth: 0.22,
   farOpacity: 0.72,
 };
+
+/** Phone portrait presentation only; engine timing and collision rules stay unchanged. */
+const PHONE_PORTRAIT_VISUALS = Object.freeze({
+  maxWidthPx: 480,
+  nearHalfWidth: 0.61,
+  playerDepth: 0.73,
+  gateFillByCount: Object.freeze({ 2: 0.9, 3: 0.96 }),
+  playerGateWidthRatio: 0.66,
+});
 
 /* ------------------------------------------------------------------------
  * World-motion system — the coded perspective road (visual only)
@@ -183,7 +298,7 @@ const ROAD_LAYOUTS = {
     nearHalfWidth: 0.5,
     playerDepth: 0.81,
     worldSpeed: 0.52,
-    perspectivePower: 1.85,
+    perspectivePower: 1.3,
     gateStartDepth: 0.02,
     roadShoulder: 0.017,
     markerWidthPx: 9,
@@ -197,9 +312,11 @@ const ROAD_LAYOUTS = {
     centerX: 0.5,
     farHalfWidth: 0.18,
     nearHalfWidth: 0.56,
-    playerDepth: 0.83,
+    // Keep the same projected collision plane as the earlier 0.83² layout,
+    // while making category art readable much sooner in the approach.
+    playerDepth: 0.707,
     worldSpeed: 0.55,
-    perspectivePower: 2,
+    perspectivePower: 1.1,
     gateStartDepth: 0.02,
     roadShoulder: 0.016,
     markerWidthPx: 7,
@@ -288,8 +405,8 @@ const ROAD_DETAIL_FAMILIES = Object.freeze({
   roadside: Object.freeze(['rock', 'rockGrass']),
 });
 
-/** 12 / 10 / 8 active details on desktop / tablet / phone. */
-const ROAD_DETAIL_DENSITY = Object.freeze({ desktop: 2, tablet: 1, mobile: 0 });
+/** Eight pooled details per layout retain texture without excess style work. */
+const ROAD_DETAIL_DENSITY = Object.freeze({ desktop: 0, tablet: 0, mobile: 0 });
 const ROAD_DETAIL_LAYOUT_SCALE = Object.freeze({ desktop: 1, tablet: 0.94, mobile: 0.86 });
 
 /**
@@ -314,17 +431,16 @@ const ROAD_DETAIL_SEEDS = Object.freeze([
 
 /** Shared approach pacing plus state-specific world-motion tuning. */
 const ROAD_MOTION = {
-  playingTimeScale: 1.6,
+  // Level 1 uses engine speed .075, so 2.777... gives a 4.8 second
+  // spawn-to-collision run: 1 / (.075 * 2.777...).
+  playingTimeScale: 25 / 9,
   markerMultiplier: 1,
   detailMultiplier: 1,
-  // Hold full motion until the gate has completely passed the fox; the
-  // feedback crawl must never read as braking during the collision.
+  // Hold full motion only through the physical gate pass. Feedback then
+  // freezes the world so an open card burns no render or decoder work.
   feedbackBurstS: 0.18,
-  crawlCorrect: 0.22,
-  crawlWrong: 0.16,
-  decelTau: 0.12,
-  accelTau: 0.22,
-  maxDeltaMs: 100,
+  maxFrameDeltaMs: 100,
+  maxEngineStepMs: 100,
   dustEveryMs: 150,
   reducedFactor: 1,
 };
@@ -334,37 +450,27 @@ const ROAD_MOTION = {
 const SPEED_PROGRESSION = Object.freeze({
   initialMultiplier: 1,
   correctStep: 0.04,
-  maxMultiplier: 1.45,
+  maxMultiplier: 1.4,
 });
 
-/**
- * Matched left/right scenery frames. Two decoded images per side are mounted
- * and crossfaded; the shared phase keeps both banks moving as one landscape.
- */
-const SIDE_SCENERY_FRAMES = Object.freeze({
-  left: Object.freeze([
-    'assets/environment/side-scenery/left-side-01.webp',
-    'assets/environment/side-scenery/left-side-02.webp',
-    'assets/environment/side-scenery/left-side-03.webp',
-    'assets/environment/side-scenery/left-side-04.webp',
-  ]),
-  right: Object.freeze([
-    'assets/environment/side-scenery/right-side-01.webp',
-    'assets/environment/side-scenery/right-side-02.webp',
-    'assets/environment/side-scenery/right-side-03.webp',
-    'assets/environment/side-scenery/right-side-04.webp',
-  ]),
+/** Native roadside media. The static device background remains authoritative
+ * whenever video is unavailable or reduced motion is requested. */
+const ROADSIDE_VIDEO_SOURCES = Object.freeze({
+  left: 'assets/environment/video/roadside-left-400x900.mp4',
+  right: 'assets/environment/video/roadside-right-400x900.mp4',
 });
 
-const SIDE_SCENERY_PLAYBACK = Object.freeze({
-  framesPerRoadDepth: 1.55,
-  reducedMotionFactor: 0.14,
+const ROADSIDE_VIDEO_PLAYBACK = Object.freeze({
+  minRate: 0.1,
+  maxRate: 1.5,
+  bufferTimeoutMs: 6000,
+  syncToleranceS: 0.08,
 });
 
 /** Sparse bonus collectibles. These values intentionally live in one place:
  * coins are a brief surprise between learning decisions, never a road trail. */
 const COIN_CONFIG = Object.freeze({
-  assetPath: 'assets/ui/coin-star.png',
+  assetPath: 'assets/ui/coin-star-384.webp',
   minCooldownMs: 7000,
   maxCooldownMs: 14000,
   secondCoinChance: 0.25,
@@ -397,7 +503,7 @@ const PRELOAD_ASSETS = Object.freeze({
     Object.freeze({
       id: 'loader-fox',
       kind: 'loader',
-      candidates: Object.freeze(['assets/ui/loader-fox.webp']),
+      candidates: Object.freeze(['assets/ui/loader-fox-768.webp']),
     }),
     ...Object.entries(GATE_VISUALS).map(([category, visual]) => Object.freeze({
       id: `gate-${category}`,
@@ -409,13 +515,6 @@ const PRELOAD_ASSETS = Object.freeze({
       kind: 'road-detail',
       candidates: Object.freeze([detail.src]),
     })),
-    ...Object.entries(SIDE_SCENERY_FRAMES).flatMap(([side, frames]) =>
-      frames.map((src, index) => Object.freeze({
-        id: `side-scenery-${side}-${index + 1}`,
-        kind: 'side-scenery',
-        candidates: Object.freeze([src]),
-      })),
-    ),
     Object.freeze({
       id: 'fox-flying-back',
       kind: 'player',
@@ -423,6 +522,13 @@ const PRELOAD_ASSETS = Object.freeze({
     }),
   ]),
   optional: Object.freeze([
+    ...Object.entries(ROADSIDE_VIDEO_SOURCES).map(([side, src]) => Object.freeze({
+      id: `roadside-video-${side}`,
+      kind: 'roadside-video',
+      side,
+      candidates: Object.freeze([src]),
+      fallbackAllowed: true,
+    })),
     Object.freeze({
       id: 'coin-star',
       kind: 'optional',
@@ -461,18 +567,22 @@ const coinSystem = {
   displayed: 0,
   effects: new Set(),
   flights: new Set(),
+  hudTargetRect: null,
 };
 
 const world = {
   built: false,
   W: 0,
   H: 0,
+  runnerLeft: 0,
+  runnerRight: 0,
+  gameTopBounds: null,
   layoutName: 'desktop',
+  isPhonePortrait: false,
   baseSpeed: ROAD_LAYOUTS.desktop.worldSpeed,
   speed: ROAD_LAYOUTS.desktop.worldSpeed,
   effectiveSpeed: 0,
   motionRate: 0,
-  crawl: 1, // settled feedback slow-motion factor
   feedbackT: 0, // seconds since the gate reached the collision plane
   horizonY: ROAD_LAYOUTS.desktop.horizonY,
   bottomY: ROAD_LAYOUTS.desktop.bottomY,
@@ -491,22 +601,669 @@ const world = {
   dusts: [],
   dustIdx: 0,
   dustTimer: 0,
-  sideScenery: {
-    roots: { left: null, right: null },
-    layers: { left: [], right: [] },
-    phase: 0,
-    renderedIndex: -1,
-  },
   playerLane: 1,
-  gate: { depth: 0, spawnFade: 0 },
+  gate: { depth: 0, passDepth: 0, spawnFade: 0, approachDepthPerSecond: 0 },
 };
 
 function clamp01(value) {
   return Math.min(1, Math.max(0, value));
 }
 
+function isPhonePortraitViewport(width, height) {
+  return width <= PHONE_PORTRAIT_VISUALS.maxWidthPx && height > width;
+}
+
 function lerp(from, to, amount) {
   return from + (to - from) * amount;
+}
+
+/**
+ * One small, fail-open Web Audio manager. Gameplay never awaits it, and a
+ * browser without Web Audio simply gets a silent game. All sources are
+ * bounded, short-lived nodes except for one reusable wind loop.
+ */
+const audioManager = (() => {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  const MUSIC_STEP_SECONDS = 0.5;
+  // 64 half-second steps: one original, sparse 32-second D-major loop.
+  const MUSIC_MELODY = Object.freeze([
+    74, null, 78, null, 81, null, 78, null,
+    76, null, 78, null, 83, null, 81, null,
+    74, null, 76, null, 78, null, 81, null,
+    79, null, 78, null, 76, null, 69, null,
+    74, null, 78, null, 81, null, 83, null,
+    81, null, 78, null, 76, null, 74, null,
+    71, null, 74, null, 79, null, 78, null,
+    76, null, 69, null, 73, null, 74, null,
+  ]);
+  const MUSIC_CHORD_ROOTS = Object.freeze([50, 47, 43, 45, 50, 45, 43, 45]);
+
+  let context = null;
+  let masterGain = null;
+  let sfxGain = null;
+  let backgroundGain = null;
+  let duckGain = null;
+  let musicGain = null;
+  let windGain = null;
+  let windFilter = null;
+  let windSource = null;
+  let noiseBuffer = null;
+  let unlockPromise = null;
+  let unlocked = false;
+  let pageVisible = !document.hidden;
+  let backgroundWanted = false;
+  let gameplayPaused = false;
+  let worldSpeed = 1;
+  let musicTimer = null;
+  let musicStep = 0;
+  let nextMusicTime = 0;
+  let lastCoinTimeMs = Number.NEGATIVE_INFINITY;
+  const lastPlayedAt = new Map();
+  const voices = [];
+  const scheduledMusicSources = new Set();
+
+  function midiFrequency(note) {
+    return 440 * (2 ** ((note - 69) / 12));
+  }
+
+  function safeStop(source, when = context?.currentTime ?? 0) {
+    try {
+      source.stop(when);
+    } catch {
+      // An already-ended Web Audio source is harmless.
+    }
+  }
+
+  function ramp(param, value, seconds, when = context?.currentTime ?? 0) {
+    if (!param || !context) return;
+    const safeValue = Math.max(0.0001, value);
+    param.cancelScheduledValues(when);
+    param.setValueAtTime(Math.max(0.0001, param.value), when);
+    param.linearRampToValueAtTime(safeValue, when + Math.max(0.001, seconds));
+  }
+
+  function createNoiseBuffer() {
+    const length = Math.max(1, Math.floor(context.sampleRate * 3));
+    const buffer = context.createBuffer(1, length, context.sampleRate);
+    const data = buffer.getChannelData(0);
+    // Deterministic noise makes the shipped sound stable across every run.
+    let seed = 0x2f6e2b1;
+    for (let index = 0; index < length; index += 1) {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      data[index] = ((seed / 0xffffffff) * 2 - 1) * 0.72;
+    }
+    // Crossfade the loop seam so the quiet wind never ticks every three seconds.
+    const seamLength = Math.min(Math.floor(context.sampleRate * 0.12), length >> 2);
+    for (let index = 0; index < seamLength; index += 1) {
+      const mix = index / Math.max(1, seamLength - 1);
+      const tailIndex = length - seamLength + index;
+      data[tailIndex] = lerp(data[tailIndex], data[index], mix);
+    }
+    return buffer;
+  }
+
+  function initializeContext() {
+    if (context || !AudioContextClass) return Boolean(context);
+    try {
+      try {
+        context = new AudioContextClass({ latencyHint: 'interactive' });
+      } catch {
+        // Older WebKit builds support Web Audio but reject constructor options.
+        context = new AudioContextClass();
+      }
+      masterGain = context.createGain();
+      sfxGain = context.createGain();
+      backgroundGain = context.createGain();
+      duckGain = context.createGain();
+      musicGain = context.createGain();
+      windGain = context.createGain();
+      const limiter = context.createDynamicsCompressor();
+
+      masterGain.gain.value = AUDIO_VOLUME.master;
+      sfxGain.gain.value = 1;
+      backgroundGain.gain.value = 0.0001;
+      duckGain.gain.value = 1;
+      musicGain.gain.value = AUDIO_VOLUME.music;
+      windGain.gain.value = AUDIO_VOLUME.wind;
+      limiter.threshold.value = -18;
+      limiter.knee.value = 18;
+      limiter.ratio.value = 4;
+      limiter.attack.value = 0.003;
+      limiter.release.value = 0.22;
+
+      sfxGain.connect(masterGain);
+      musicGain.connect(duckGain);
+      windGain.connect(duckGain);
+      duckGain.connect(backgroundGain);
+      backgroundGain.connect(masterGain);
+      masterGain.connect(limiter);
+      limiter.connect(context.destination);
+      noiseBuffer = createNoiseBuffer();
+      return true;
+    } catch (error) {
+      context = null;
+      if (DEBUG) console.warn('[audio] Web Audio unavailable', error);
+      return false;
+    }
+  }
+
+  function connectWithPan(node, destination, pan = 0) {
+    if (typeof context.createStereoPanner !== 'function' || Math.abs(pan) < 0.01) {
+      node.connect(destination);
+      return;
+    }
+    const panner = context.createStereoPanner();
+    panner.pan.value = Math.max(-1, Math.min(1, pan));
+    node.connect(panner);
+    panner.connect(destination);
+  }
+
+  function addTone(
+    sources,
+    start,
+    duration,
+    frequency,
+    endFrequency,
+    volume,
+    type = 'sine',
+    pan = 0,
+    destination = sfxGain,
+  ) {
+    const oscillator = context.createOscillator();
+    const envelope = context.createGain();
+    const attack = Math.min(0.012, duration * 0.18);
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(Math.max(20, frequency), start);
+    oscillator.frequency.exponentialRampToValueAtTime(
+      Math.max(20, endFrequency ?? frequency),
+      start + duration,
+    );
+    envelope.gain.setValueAtTime(0.0001, start);
+    envelope.gain.linearRampToValueAtTime(Math.max(0.0001, volume), start + attack);
+    envelope.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    oscillator.connect(envelope);
+    connectWithPan(envelope, destination, pan);
+    oscillator.start(start);
+    oscillator.stop(start + duration + 0.025);
+    sources.push(oscillator);
+  }
+
+  function addNoise(
+    sources,
+    start,
+    duration,
+    volume,
+    startFrequency,
+    endFrequency,
+    type = 'bandpass',
+    pan = 0,
+    destination = sfxGain,
+  ) {
+    const source = context.createBufferSource();
+    const filter = context.createBiquadFilter();
+    const envelope = context.createGain();
+    source.buffer = noiseBuffer;
+    filter.type = type;
+    filter.Q.value = type === 'bandpass' ? 0.75 : 0.35;
+    filter.frequency.setValueAtTime(Math.max(80, startFrequency), start);
+    filter.frequency.exponentialRampToValueAtTime(
+      Math.max(80, endFrequency),
+      start + duration,
+    );
+    envelope.gain.setValueAtTime(0.0001, start);
+    envelope.gain.linearRampToValueAtTime(Math.max(0.0001, volume), start + 0.012);
+    envelope.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    source.connect(filter);
+    filter.connect(envelope);
+    connectWithPan(envelope, destination, pan);
+    source.start(start, (start * 0.731) % Math.max(0.1, noiseBuffer.duration - duration));
+    source.stop(start + duration + 0.025);
+    sources.push(source);
+  }
+
+  function removeVoice(voice) {
+    const index = voices.indexOf(voice);
+    if (index >= 0) voices.splice(index, 1);
+    if (voice.cleanupTimer !== null) window.clearTimeout(voice.cleanupTimer);
+    voice.cleanupTimer = null;
+  }
+
+  function stopVoice(voice) {
+    voice.sources.forEach((source) => safeStop(source));
+    removeVoice(voice);
+  }
+
+  function pruneVoices() {
+    if (!context) return;
+    for (const voice of [...voices]) {
+      if (voice.endTime <= context.currentTime) removeVoice(voice);
+    }
+  }
+
+  function reserveVoice(name, cue) {
+    pruneVoices();
+    if (voices.filter((voice) => voice.name === name).length >= cue.maxVoices) return null;
+    if (voices.length >= AUDIO_MAX_TRANSIENT_VOICES) {
+      const victim = [...voices].sort((left, right) =>
+        left.priority - right.priority || left.startedAt - right.startedAt
+      )[0];
+      if (!victim || victim.priority > cue.priority) return null;
+      stopVoice(victim);
+    }
+    const voice = {
+      name,
+      priority: cue.priority,
+      startedAt: performance.now(),
+      endTime: context.currentTime,
+      sources: [],
+      cleanupTimer: null,
+    };
+    voices.push(voice);
+    return voice;
+  }
+
+  function duckBackground() {
+    if (!context || !duckGain) return;
+    const now = context.currentTime;
+    duckGain.gain.cancelScheduledValues(now);
+    duckGain.gain.setValueAtTime(Math.max(0.0001, duckGain.gain.value), now);
+    duckGain.gain.linearRampToValueAtTime(0.84, now + 0.025);
+    duckGain.gain.setTargetAtTime(1, now + 0.14, 0.24);
+  }
+
+  function buildCue(name, cue, options, voice) {
+    const delay = Math.max(0, Number(options.delay) || 0);
+    const start = context.currentTime + delay;
+    const sources = voice.sources;
+    const volume = cue.volume;
+    let duration = 0.2;
+
+    switch (name) {
+      case 'uiClick':
+        duration = 0.075;
+        addTone(sources, start, 0.065, 520, 390, volume, 'triangle');
+        break;
+      case 'laneChange': {
+        duration = 0.15;
+        const pan = Math.sign(options.direction || 0) * 0.42;
+        addNoise(sources, start, 0.14, volume, 1850, 720, 'bandpass', pan);
+        addTone(sources, start + 0.012, 0.1, 310, 240, volume * 0.16, 'sine', pan);
+        break;
+      }
+      case 'gateApproach':
+        duration = 0.23;
+        addNoise(sources, start, 0.22, volume, 620, 1480, 'bandpass');
+        addTone(sources, start + 0.06, 0.14, 330, 415, volume * 0.18, 'sine');
+        break;
+      case 'gatePass':
+        duration = 0.29;
+        addNoise(sources, start, 0.25, volume * 0.9, 2050, 610, 'bandpass');
+        addTone(sources, start + 0.075, 0.16, 880, 1180, volume * 0.24, 'sine');
+        addTone(sources, start + 0.13, 0.13, 1320, 1510, volume * 0.16, 'sine');
+        break;
+      case 'correct': {
+        duration = 0.56;
+        const notes = [523.25, 659.25, 783.99];
+        notes.forEach((frequency, index) => {
+          addTone(
+            sources,
+            start + index * 0.11,
+            0.25 + index * 0.035,
+            frequency,
+            frequency * 1.008,
+            volume * (0.66 - index * 0.05),
+            index === 2 ? 'sine' : 'triangle',
+          );
+        });
+        break;
+      }
+      case 'wrong':
+        duration = 0.43;
+        addTone(sources, start, 0.26, 392, 349.23, volume * 0.7, 'triangle');
+        addTone(sources, start + 0.15, 0.27, 329.63, 293.66, volume * 0.62, 'sine');
+        break;
+      case 'coin': {
+        duration = 0.2;
+        const nowMs = performance.now();
+        const lift = nowMs - lastCoinTimeMs < 480 ? 1.08 : 1;
+        lastCoinTimeMs = nowMs;
+        addTone(sources, start, 0.14, 987.77 * lift, 1050 * lift, volume * 0.82, 'sine');
+        addTone(sources, start + 0.055, 0.13, 1318.51 * lift, 1390 * lift, volume * 0.52, 'sine');
+        break;
+      }
+      case 'hint':
+        duration = 0.23;
+        addTone(sources, start, 0.16, 783.99, 880, volume * 0.62, 'sine');
+        addTone(sources, start + 0.065, 0.15, 1046.5, 1174.66, volume * 0.48, 'sine');
+        break;
+      case 'pause':
+        duration = 0.23;
+        addTone(sources, start, 0.19, 440, 329.63, volume * 0.72, 'sine');
+        addTone(sources, start + 0.05, 0.16, 329.63, 293.66, volume * 0.42, 'triangle');
+        break;
+      case 'resume':
+        duration = 0.23;
+        addTone(sources, start, 0.17, 293.66, 369.99, volume * 0.58, 'triangle');
+        addTone(sources, start + 0.065, 0.16, 369.99, 440, volume * 0.64, 'sine');
+        break;
+      case 'levelComplete': {
+        duration = 1.42;
+        const phrase = [523.25, 659.25, 783.99, 1046.5, 987.77, 1046.5];
+        const offsets = [0, 0.18, 0.36, 0.58, 0.84, 1.04];
+        phrase.forEach((frequency, index) => {
+          addTone(
+            sources,
+            start + offsets[index],
+            index === phrase.length - 1 ? 0.36 : 0.24,
+            frequency,
+            frequency * 1.004,
+            volume * (index === phrase.length - 1 ? 0.68 : 0.48),
+            index % 2 === 0 ? 'triangle' : 'sine',
+          );
+        });
+        break;
+      }
+      case 'gameOver':
+        duration = 1.02;
+        [440, 392, 329.63, 261.63].forEach((frequency, index) => {
+          addTone(
+            sources,
+            start + index * 0.2,
+            index === 3 ? 0.38 : 0.25,
+            frequency,
+            frequency * 0.992,
+            volume * (0.5 - index * 0.045),
+            index < 2 ? 'triangle' : 'sine',
+          );
+        });
+        break;
+      default:
+        return false;
+    }
+
+    voice.endTime = start + duration + 0.05;
+    voice.cleanupTimer = window.setTimeout(
+      () => removeVoice(voice),
+      Math.ceil((delay + duration + 0.25) * 1000),
+    );
+    return true;
+  }
+
+  function play(name, options = {}) {
+    const cue = AUDIO_CUES[name];
+    if (!cue || !unlocked || !context || context.state !== 'running' || !pageVisible) {
+      return false;
+    }
+    const nowMs = performance.now();
+    if (nowMs - (lastPlayedAt.get(name) ?? Number.NEGATIVE_INFINITY) < cue.cooldownMs) {
+      return false;
+    }
+    const voice = reserveVoice(name, cue);
+    if (!voice) return false;
+    if (!buildCue(name, cue, options, voice)) {
+      removeVoice(voice);
+      return false;
+    }
+    lastPlayedAt.set(name, nowMs);
+    if (cue.priority === AUDIO_PRIORITY.high) duckBackground();
+    return true;
+  }
+
+  function ensureWind() {
+    if (!context || !noiseBuffer || windSource) return;
+    windSource = context.createBufferSource();
+    windFilter = context.createBiquadFilter();
+    windSource.buffer = noiseBuffer;
+    windSource.loop = true;
+    windFilter.type = 'lowpass';
+    windFilter.Q.value = 0.22;
+    windFilter.frequency.value = 680;
+    windSource.connect(windFilter);
+    windFilter.connect(windGain);
+    windSource.start();
+  }
+
+  function addMusicPluck(start, note) {
+    const sources = [];
+    const frequency = midiFrequency(note);
+    addTone(sources, start, 0.34, frequency, frequency * 1.003, 0.1, 'triangle', 0, musicGain);
+    trackMusicSources(sources);
+  }
+
+  function addMusicPad(start, root) {
+    const sources = [];
+    [root, root + 7].forEach((note, index) => {
+      addTone(
+        sources,
+        start,
+        3.75,
+        midiFrequency(note),
+        midiFrequency(note) * 1.002,
+        index === 0 ? 0.035 : 0.024,
+        'sine',
+        index === 0 ? -0.18 : 0.18,
+        musicGain,
+      );
+    });
+    trackMusicSources(sources);
+  }
+
+  function addMusicPercussion(start) {
+    const sources = [];
+    addNoise(sources, start, 0.055, 0.025, 2400, 1450, 'highpass', 0, musicGain);
+    trackMusicSources(sources);
+  }
+
+  function trackMusicSources(sources) {
+    for (const source of sources) {
+      scheduledMusicSources.add(source);
+      source.addEventListener('ended', () => scheduledMusicSources.delete(source), { once: true });
+    }
+  }
+
+  function scheduleMusicStep(step, start) {
+    const note = MUSIC_MELODY[step];
+    if (note !== null) addMusicPluck(start, note);
+    if (step % 8 === 0) addMusicPad(start, MUSIC_CHORD_ROOTS[(step / 8) % 8]);
+    if (step % 4 === 2) addMusicPercussion(start);
+  }
+
+  function scheduleMusicAhead() {
+    if (!context || context.state !== 'running') return;
+    const now = context.currentTime;
+    const horizon = now + 0.65;
+    if (!Number.isFinite(nextMusicTime) || nextMusicTime < now - 0.05) {
+      const skippedSteps = Math.max(1, Math.ceil((now - nextMusicTime) / MUSIC_STEP_SECONDS));
+      musicStep = (musicStep + skippedSteps) % MUSIC_MELODY.length;
+      nextMusicTime = now + 0.075;
+    }
+    const maxStepsPerTick = Math.ceil(0.65 / MUSIC_STEP_SECONDS) + 1;
+    let scheduledSteps = 0;
+    while (nextMusicTime < horizon && scheduledSteps < maxStepsPerTick) {
+      scheduleMusicStep(musicStep, nextMusicTime);
+      musicStep = (musicStep + 1) % MUSIC_MELODY.length;
+      nextMusicTime += MUSIC_STEP_SECONDS;
+      scheduledSteps += 1;
+    }
+  }
+
+  function startMusicScheduler() {
+    if (!context || context.state !== 'running' || musicTimer !== null) return;
+    nextMusicTime = Math.max(context.currentTime + 0.075, nextMusicTime);
+    scheduleMusicAhead();
+    musicTimer = window.setInterval(scheduleMusicAhead, 220);
+  }
+
+  function stopMusicScheduler(stopDelay = 0.16) {
+    if (musicTimer !== null) window.clearInterval(musicTimer);
+    musicTimer = null;
+    nextMusicTime = 0;
+    const stopAt = (context?.currentTime ?? 0) + Math.max(0, stopDelay);
+    for (const source of scheduledMusicSources) safeStop(source, stopAt);
+  }
+
+  function syncBackground() {
+    if (!context || !unlocked) return;
+    const active = backgroundWanted && !gameplayPaused && pageVisible;
+    if (active) {
+      ensureWind();
+      startMusicScheduler();
+      ramp(backgroundGain.gain, 1, 0.32);
+    } else {
+      ramp(backgroundGain.gain, 0.0001, 0.13);
+      stopMusicScheduler();
+    }
+  }
+
+  function setWorldSpeed(multiplier) {
+    worldSpeed = Math.max(1, Math.min(SPEED_PROGRESSION.maxMultiplier, multiplier || 1));
+    if (!context || !windGain || !windFilter) return;
+    const normalized = (worldSpeed - 1) / Math.max(0.001, SPEED_PROGRESSION.maxMultiplier - 1);
+    ramp(windGain.gain, AUDIO_VOLUME.wind * lerp(1, 1.26, normalized), 0.28);
+    ramp(windFilter.frequency, lerp(680, 790, normalized), 0.32);
+  }
+
+  function stopAllSfx({ preserve = [] } = {}) {
+    const keep = new Set(preserve);
+    for (const voice of [...voices]) {
+      if (!keep.has(voice.name)) stopVoice(voice);
+    }
+  }
+
+  function resetForRun() {
+    stopAllSfx({ preserve: ['uiClick'] });
+    lastCoinTimeMs = Number.NEGATIVE_INFINITY;
+    // The continuous bed is intentionally not restarted here. Keeping the
+    // one scheduler preserves a seamless loop and guarantees no duplicate.
+    syncBackground();
+  }
+
+  async function unlock() {
+    if (unlocked && context?.state === 'running') {
+      syncBackground();
+      return true;
+    }
+    if (unlockPromise) return unlockPromise;
+    unlockPromise = (async () => {
+      if (!initializeContext()) return false;
+      try {
+        if (context.state !== 'running' && context.state !== 'closed') {
+          await context.resume();
+        }
+        // A one-frame silent source completes iOS/Safari's media unlock path.
+        const silent = context.createBufferSource();
+        silent.buffer = context.createBuffer(1, 1, context.sampleRate);
+        silent.connect(masterGain);
+        silent.start();
+        unlocked = context.state === 'running';
+        if (unlocked) {
+          ensureWind();
+          setWorldSpeed(worldSpeed);
+          syncBackground();
+        }
+        return unlocked;
+      } catch (error) {
+        if (DEBUG) console.warn('[audio] unlock failed', error);
+        return false;
+      }
+    })().finally(() => {
+      unlockPromise = null;
+    });
+    return unlockPromise;
+  }
+
+  function startMusic() {
+    backgroundWanted = true;
+    syncBackground();
+  }
+
+  function stopMusic() {
+    backgroundWanted = false;
+    syncBackground();
+  }
+
+  function pauseAll() {
+    gameplayPaused = true;
+    syncBackground();
+  }
+
+  function resumeAll() {
+    gameplayPaused = false;
+    if (
+      unlocked &&
+      context &&
+      context.state !== 'running' &&
+      context.state !== 'closed' &&
+      pageVisible
+    ) {
+      void context.resume().then(syncBackground).catch(() => {});
+    } else {
+      syncBackground();
+    }
+  }
+
+  function setPageVisible(visible) {
+    pageVisible = Boolean(visible);
+    if (!pageVisible) {
+      stopMusicScheduler(0);
+      stopAllSfx();
+      if (context && context.state === 'running') {
+        const suspendingContext = context;
+        void suspendingContext.suspend().then(async () => {
+          // A rapid hide/show can complete this older suspend after the
+          // visible handler already ran. Reconcile against the latest state.
+          if (!pageVisible || context !== suspendingContext || !unlocked) return;
+          stopMusicScheduler(0);
+          if (suspendingContext.state !== 'running' && suspendingContext.state !== 'closed') {
+            await suspendingContext.resume();
+          }
+          if (pageVisible && context === suspendingContext) syncBackground();
+        }).catch(() => {});
+      }
+      return;
+    }
+    if (
+      unlocked &&
+      context &&
+      context.state !== 'running' &&
+      context.state !== 'closed'
+    ) {
+      void context.resume().then(syncBackground).catch(() => {});
+    } else {
+      syncBackground();
+    }
+  }
+
+  function destroy() {
+    backgroundWanted = false;
+    stopMusicScheduler();
+    stopAllSfx();
+    if (windSource) safeStop(windSource);
+    windSource = null;
+    windFilter = null;
+    unlocked = false;
+    if (context && context.state !== 'closed') void context.close().catch(() => {});
+    context = null;
+  }
+
+  return Object.freeze({
+    unlock,
+    play,
+    startMusic,
+    stopMusic,
+    pauseAll,
+    resumeAll,
+    setWorldSpeed,
+    setPageVisible,
+    resetForRun,
+    stopAllSfx,
+    destroy,
+  });
+})();
+
+/** The single browser-autoplay entry point used by pointer and keyboard input. */
+function unlockAudio() {
+  return audioManager.unlock();
 }
 
 /**
@@ -515,20 +1272,23 @@ function lerp(from, to, amount) {
  * slots and ±0.5 are their dividers. Scale is normalized to exactly 1 at
  * the fox's playerDepth.
  */
-function projectRoadPoint(depth, laneOffset = 0) {
+function writeProjectedRoadPoint(target, depth, laneOffset = 0) {
   const safeDepth = Math.max(0, depth);
   const t = Math.pow(safeDepth, world.perspectivePower);
   const roadHalfWidth = lerp(world.farHalfWidth, world.nearHalfWidth, t);
   const laneSpacing = (roadHalfWidth * 2) / 3;
-  return {
-    x: world.centerX + laneOffset * laneSpacing,
-    y: lerp(world.horizonY, world.bottomY, t),
-    roadHalfWidth,
-    laneSpacing,
-    scale: roadHalfWidth / world.playerHalfWidth,
-    t,
-    depth: safeDepth,
-  };
+  target.x = world.centerX + laneOffset * laneSpacing;
+  target.y = lerp(world.horizonY, world.bottomY, t);
+  target.roadHalfWidth = roadHalfWidth;
+  target.laneSpacing = laneSpacing;
+  target.scale = roadHalfWidth / world.playerHalfWidth;
+  target.t = t;
+  target.depth = safeDepth;
+  return target;
+}
+
+function projectRoadPoint(depth, laneOffset = 0) {
+  return writeProjectedRoadPoint({}, depth, laneOffset);
 }
 
 /** Project one of the three answer lanes through the shared road geometry. */
@@ -540,43 +1300,50 @@ function gateCollisionDepth() {
   return Math.max(0, world.playerDepth - RUNNER_GEO.gateCollisionLeadDepth);
 }
 
+function gateRenderDepth() {
+  return world.gate.depth + world.gate.passDepth;
+}
+
 /**
  * The authoritative gate geometry. Full artwork bounds, including posts and
  * stone bases, fit inside equal road slots after a small edge safety inset.
  */
-function getGateLayoutAtDepth(depth, requestedCount) {
+function writeGateLayoutAtDepth(target, depth, requestedCount) {
   const gateCount = Math.max(1, Math.floor(requestedCount) || 3);
-  const point = projectRoadPoint(depth, 0);
+  const point = writeProjectedRoadPoint(target.point, depth, 0);
   const roadWidth = point.roadHalfWidth * 2 * world.W;
   const roadLeft = point.x * world.W - roadWidth / 2;
   const roadRight = roadLeft + roadWidth;
   const safeInset = roadWidth * RUNNER_GEO.gateSafeInsetRatio;
-  const usableLeft = roadLeft + safeInset;
-  const usableWidth = Math.max(0, roadWidth - safeInset * 2);
-  const slotWidth = usableWidth / gateCount;
-  const fill = RUNNER_GEO.gateFillByCount[gateCount] ?? RUNNER_GEO.gateFillByCount[3];
+  const slotWidth = roadWidth / gateCount;
+  const fillByCount = world.isPhonePortrait
+    ? PHONE_PORTRAIT_VISUALS.gateFillByCount
+    : RUNNER_GEO.gateFillByCount;
+  const fill = fillByCount[gateCount] ?? fillByCount[3] ?? RUNNER_GEO.gateFillByCount[3];
   const maxHeightRatio = RUNNER_GEO.gateMaxHeightRatioByLayout[world.layoutName] ?? 0.35;
   const maxWidthFromHeight = world.H * maxHeightRatio * RUNNER_GEO.gateArtAspectRatio;
+  const maxWidthInsideRoad = Math.max(0, slotWidth - safeInset * 2);
   const gateWidth = Math.min(
     slotWidth * fill,
+    maxWidthInsideRoad,
     RUNNER_GEO.gateMaxWidthPx,
     maxWidthFromHeight,
   );
-  const centers = Array.from(
-    { length: gateCount },
-    (_, index) => usableLeft + slotWidth * (index + 0.5),
-  );
+  target.roadLeft = roadLeft;
+  target.roadRight = roadRight;
+  target.roadWidth = roadWidth;
+  target.safeInset = safeInset;
+  target.slotWidth = slotWidth;
+  target.gateWidth = gateWidth;
+  return target;
+}
 
-  return {
-    point,
-    roadLeft,
-    roadRight,
-    roadWidth,
-    safeInset,
-    slotWidth,
-    gateWidth,
-    centers,
-  };
+function getGateLayoutAtDepth(depth, requestedCount) {
+  return writeGateLayoutAtDepth({ point: {} }, depth, requestedCount);
+}
+
+function gateCenterX(geometry, lane) {
+  return geometry.roadLeft + geometry.slotWidth * (lane + 0.5);
 }
 
 const dom = {
@@ -628,6 +1395,9 @@ const dom = {
   runner: document.getElementById('runner'),
   gameTop: document.querySelector('.game-top'),
   scene: document.querySelector('.scene'),
+  roadsideWorld: document.getElementById('roadside-world'),
+  roadsideVideoLeft: document.getElementById('roadside-video-left'),
+  roadsideVideoRight: document.getElementById('roadside-video-right'),
   gatesRoot: document.getElementById('gates'),
   player: document.getElementById('player'),
   playerLean: document.getElementById('player-lean'),
@@ -681,6 +1451,10 @@ const dom = {
 const gateEls = [...dom.gatesRoot.querySelectorAll('.answer-gate')];
 const answerChoiceEls = [...dom.answerDock.querySelectorAll('.answer-dock__choice')];
 const roadGuideEls = [...document.querySelectorAll('.road-guide')];
+const roadsideVideos = Object.freeze({
+  left: dom.roadsideVideoLeft,
+  right: dom.roadsideVideoRight,
+});
 
 /* ========================================================================
  * 2. Module state
@@ -700,12 +1474,63 @@ let lastFrameTime = null;
 let fatalHandled = false;
 let devBarLastUpdate = 0;
 let feedbackAutoContinueTimer = null;
+let feedbackAutoContinueDueAt = null;
+let feedbackAutoContinueRemainingMs = null;
 let activeFeedbackIsCorrect = null;
 let activeLaneMap = [];
+let decisionFocusActive = false;
+const audioEventState = {
+  gateApproachPlayed: false,
+  gatePassPlayed: false,
+  feedbackPlayed: false,
+};
+const roadsideVideoState = {
+  ready: new Set(),
+  failed: new Set(),
+  lockedFallback: new Set(),
+  autoplayBlocked: new Set(),
+  playRequests: new WeakMap(),
+  lastRate: null,
+  ratePhase: null,
+  gestureRetryInstalled: false,
+};
+
+function resetQuestionAudioState() {
+  audioEventState.gateApproachPlayed = false;
+  audioEventState.gatePassPlayed = false;
+  audioEventState.feedbackPlayed = false;
+}
+
+function playAnswerFeedbackAudio(name) {
+  if (!audioEventState.gatePassPlayed) {
+    audioEventState.gatePassPlayed = true;
+    audioManager.play('gatePass');
+  }
+  // Terminal answers can move directly to a completion screen. The physical
+  // pass remains audible, while the terminal cue replaces answer feedback.
+  if (engine?.state !== GAME_STATES.FEEDBACK || audioEventState.feedbackPlayed) return;
+  audioEventState.feedbackPlayed = true;
+  audioManager.play(name, { delay: 0.065 });
+}
+
+function currentGameplayRate() {
+  return ROAD_MOTION.playingTimeScale * speedMultiplier;
+}
+
+function advanceEngineByScaledTime(totalDeltaMs) {
+  let remainingMs = Math.max(0, totalDeltaMs);
+  while (remainingMs > 0 && engine?.state === GAME_STATES.PLAYING) {
+    const stepMs = Math.min(ROAD_MOTION.maxEngineStepMs, remainingMs);
+    engine.update(stepMs);
+    remainingMs -= stepMs;
+  }
+}
 
 function resetSpeedProgression() {
   speedMultiplier = SPEED_PROGRESSION.initialMultiplier;
   speedIncreaseQueued = false;
+  audioManager.setWorldSpeed(speedMultiplier);
+  syncRoadsideVideoRate(engine?.state, world.motionRate, true);
 }
 
 function queueSpeedIncrease() {
@@ -719,6 +1544,286 @@ function applyQueuedSpeedIncrease() {
     SPEED_PROGRESSION.maxMultiplier,
     speedMultiplier + SPEED_PROGRESSION.correctStep,
   );
+  audioManager.setWorldSpeed(speedMultiplier);
+  syncRoadsideVideoRate(engine?.state, world.motionRate, true);
+}
+
+function roadsidePanelFor(video) {
+  return video?.closest('.roadside-panel') ?? null;
+}
+
+function markRoadsideVideoReady(side) {
+  const video = roadsideVideos[side];
+  if (!video || prefersReducedMotion || roadsideVideoState.lockedFallback.has(side)) return;
+  roadsideVideoState.failed.delete(side);
+  roadsideVideoState.ready.add(side);
+  video.dataset.ready = 'true';
+  syncRoadsideVideoRate(engine?.state, world.motionRate, true);
+  syncRoadsideVideoPlayback();
+}
+
+function markRoadsideVideoLoading(side) {
+  const video = roadsideVideos[side];
+  if (!video || roadsideVideoState.lockedFallback.has(side)) return;
+  roadsideVideoState.ready.delete(side);
+  video.dataset.ready = 'false';
+  video.dataset.playing = 'false';
+  roadsidePanelFor(video)?.classList.remove('is-ready');
+}
+
+function markRoadsideVideoFailed(side, lockFallback = true) {
+  const video = roadsideVideos[side];
+  if (!video) return;
+  roadsideVideoState.ready.delete(side);
+  roadsideVideoState.failed.add(side);
+  roadsideVideoState.autoplayBlocked.delete(side);
+  if (lockFallback) roadsideVideoState.lockedFallback.add(side);
+  video.dataset.ready = 'false';
+  video.dataset.playing = 'false';
+  video.dataset.playIntent = 'paused';
+  roadsidePanelFor(video)?.classList.remove('is-ready');
+  video.pause();
+}
+
+function retryBlockedRoadsideVideos() {
+  roadsideVideoState.gestureRetryInstalled = false;
+  document.removeEventListener('click', retryBlockedRoadsideVideos);
+  document.removeEventListener('keyup', retryBlockedRoadsideVideos);
+
+  // Bubble-phase click (or keyup) runs after the game control that may have
+  // entered PLAYING. If the gesture did not start/resume gameplay, keep the
+  // one-shot recovery armed for the next meaningful gesture.
+  if (!shouldRoadsideVideosPlay()) {
+    installRoadsideGestureRetry();
+    return;
+  }
+
+  for (const [side, video] of Object.entries(roadsideVideos)) {
+    if (!video || !roadsideVideoState.autoplayBlocked.has(side)) continue;
+    requestRoadsideVideoPlay(side, video, true);
+  }
+}
+
+function installRoadsideGestureRetry() {
+  if (roadsideVideoState.gestureRetryInstalled) return;
+  roadsideVideoState.gestureRetryInstalled = true;
+  document.addEventListener('click', retryBlockedRoadsideVideos);
+  document.addEventListener('keyup', retryBlockedRoadsideVideos);
+}
+
+function markRoadsideAutoplayBlocked(side) {
+  const video = roadsideVideos[side];
+  if (!video || roadsideVideoState.lockedFallback.has(side)) return;
+  roadsideVideoState.autoplayBlocked.add(side);
+  video.dataset.playing = 'false';
+  roadsidePanelFor(video)?.classList.remove('is-ready');
+  installRoadsideGestureRetry();
+}
+
+function configureRoadsideVideos() {
+  for (const [side, video] of Object.entries(roadsideVideos)) {
+    if (!video) continue;
+    video.controls = false;
+    video.muted = true;
+    video.defaultMuted = true;
+    video.loop = true;
+    video.playsInline = true;
+    video.preload = prefersReducedMotion ? 'none' : 'auto';
+    video.pause();
+    video.dataset.playIntent = 'paused';
+    video.addEventListener('loadstart', () => markRoadsideVideoLoading(side));
+    video.addEventListener('canplay', () => markRoadsideVideoReady(side));
+    video.addEventListener('error', () => {
+      if (!prefersReducedMotion) markRoadsideVideoFailed(side);
+    });
+    if (!prefersReducedMotion && video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+      markRoadsideVideoReady(side);
+    }
+  }
+}
+
+function roadsideVideoRateForState(state = engine?.state, motionRate = world.motionRate) {
+  // The footage is authored at the base 1x run and follows the exact same
+  // relative rate as the coded world while that world is moving.
+  const worldRate = speedMultiplier * (
+    state === GAME_STATES.FEEDBACK ? motionRate : 1
+  );
+  return Math.min(
+    ROADSIDE_VIDEO_PLAYBACK.maxRate,
+    Math.max(ROADSIDE_VIDEO_PLAYBACK.minRate, worldRate),
+  );
+}
+
+function roadsideVideoRatePhase(state = engine?.state, motionRate = world.motionRate) {
+  if (state === GAME_STATES.PLAYING) return 'playing';
+  if (state === GAME_STATES.FEEDBACK && motionRate >= 1) return 'feedback-burst';
+  return 'inactive';
+}
+
+function syncRoadsideVideoRate(
+  state = engine?.state,
+  motionRate = world.motionRate,
+  force = false,
+) {
+  if (state !== GAME_STATES.PLAYING && state !== GAME_STATES.FEEDBACK) return;
+  const nextPhase = roadsideVideoRatePhase(state, motionRate);
+  const nextRate = roadsideVideoRateForState(state, motionRate);
+  if (
+    !force &&
+    nextPhase === roadsideVideoState.ratePhase &&
+    roadsideVideoState.lastRate !== null &&
+    Math.abs(nextRate - roadsideVideoState.lastRate) < 0.001
+  ) return;
+
+  roadsideVideoState.ratePhase = nextPhase;
+  roadsideVideoState.lastRate = nextRate;
+  for (const [side, video] of Object.entries(roadsideVideos)) {
+    if (!video || !roadsideVideoState.ready.has(side)) continue;
+    // Some embedded/mobile media implementations reject uncommon rates.
+    // Keep the native fallback playing at its current rate instead of letting
+    // one media assignment interrupt the shared gameplay loop.
+    try {
+      video.defaultPlaybackRate = nextRate;
+      video.playbackRate = nextRate;
+    } catch {
+      video.dataset.rateUnsupported = 'true';
+    }
+  }
+}
+
+function alignRoadsideVideoToPeer(side, video) {
+  if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return;
+  const peer = Object.entries(roadsideVideos).find(([peerSide, candidate]) => (
+    peerSide !== side &&
+    candidate &&
+    roadsideVideoState.ready.has(peerSide) &&
+    !roadsideVideoState.lockedFallback.has(peerSide) &&
+    Number.isFinite(candidate.duration) &&
+    candidate.duration > 0
+  ));
+  if (!peer) return;
+
+  const reference = peer[1];
+  const targetTime = ((reference.currentTime / reference.duration) % 1) * video.duration;
+  const directGap = Math.abs(video.currentTime - targetTime);
+  const loopGap = Math.min(directGap, Math.max(0, video.duration - directGap));
+  if (loopGap <= ROADSIDE_VIDEO_PLAYBACK.syncToleranceS) return;
+
+  try {
+    video.currentTime = targetTime;
+  } catch {
+    // Metadata/seek support can vary on embedded browsers. Native playback is
+    // still a safe fallback even when this one-time phase correction is not.
+  }
+}
+
+function alignRoadsideVideoPair() {
+  const readyVideos = Object.entries(roadsideVideos).filter(([side, video]) => (
+    video &&
+    roadsideVideoState.ready.has(side) &&
+    !roadsideVideoState.lockedFallback.has(side)
+  ));
+  if (readyVideos.length < 2) return;
+
+  // Prefer the side already moving so a later-ready/autoplay-retried peer
+  // joins the visible loop instead of restarting both panels at frame zero.
+  const leader = readyVideos.find(([, video]) => !video.paused) ?? readyVideos[0];
+  for (const [side, video] of readyVideos) {
+    if (video === leader[1]) continue;
+    alignRoadsideVideoToPeer(side, video);
+  }
+}
+
+function requestRoadsideVideoPlay(side, video, retryBlocked = false) {
+  if (
+    !roadsideVideoState.ready.has(side) ||
+    roadsideVideoState.lockedFallback.has(side) ||
+    (!retryBlocked && roadsideVideoState.autoplayBlocked.has(side)) ||
+    roadsideVideoState.playRequests.has(video)
+  ) return;
+  if (!video.paused) {
+    video.dataset.playing = 'true';
+    roadsideVideoState.autoplayBlocked.delete(side);
+    roadsidePanelFor(video)?.classList.add('is-ready');
+    return;
+  }
+
+  alignRoadsideVideoToPeer(side, video);
+  const request = video.play();
+  if (!request || typeof request.then !== 'function') {
+    video.dataset.playing = video.paused ? 'false' : 'true';
+    if (video.paused) markRoadsideAutoplayBlocked(side);
+    return;
+  }
+
+  roadsideVideoState.playRequests.set(video, request);
+  void request
+    .then(() => {
+      if (video.dataset.playIntent !== 'playing') {
+        video.pause();
+        video.dataset.playing = 'false';
+        return;
+      }
+      roadsideVideoState.autoplayBlocked.delete(side);
+      video.dataset.playing = video.paused ? 'false' : 'true';
+      if (!video.paused) {
+        roadsidePanelFor(video)?.classList.add('is-ready');
+      }
+    })
+    .catch((error) => {
+      if (video.dataset.playIntent !== 'playing') return;
+      if (error?.name === 'NotAllowedError') {
+        markRoadsideAutoplayBlocked(side);
+      } else if (error?.name !== 'AbortError') {
+        // Decode/source failures are terminal for this run; the static scene
+        // remains visible and a late media event cannot flash the panel in.
+        markRoadsideVideoFailed(side, true);
+      }
+    })
+    .finally(() => {
+      roadsideVideoState.playRequests.delete(video);
+      // A pause/resume can race an in-flight play() promise. Reconcile once
+      // it settles so the video cannot remain frozen after a fast resume.
+      if (
+        video.dataset.playIntent === 'playing' &&
+        video.paused &&
+        roadsideVideoState.ready.has(side) &&
+        !roadsideVideoState.autoplayBlocked.has(side)
+      ) requestRoadsideVideoPlay(side, video);
+    });
+}
+
+function shouldRoadsideVideosPlay() {
+  const state = engine?.state;
+  return (
+    !document.hidden &&
+    !prefersReducedMotion &&
+    currentScreen === 'game' &&
+    (state === GAME_STATES.PLAYING ||
+      (state === GAME_STATES.FEEDBACK && world.motionRate > 0))
+  );
+}
+
+function syncRoadsideVideoPlayback() {
+  const state = engine?.state;
+  const shouldPlay = shouldRoadsideVideosPlay();
+
+  if (shouldPlay) {
+    syncRoadsideVideoRate(state, world.motionRate, true);
+    alignRoadsideVideoPair();
+  } else {
+    roadsideVideoState.ratePhase = 'inactive';
+  }
+  for (const [side, video] of Object.entries(roadsideVideos)) {
+    if (!video) continue;
+    video.dataset.playIntent = shouldPlay ? 'playing' : 'paused';
+    if (shouldPlay) {
+      requestRoadsideVideoPlay(side, video);
+    } else {
+      video.pause();
+      video.dataset.playing = 'false';
+    }
+  }
 }
 
 /* ========================================================================
@@ -755,6 +1860,8 @@ function fatalError(message, error) {
   if (fatalHandled) return;
   fatalHandled = true;
   resetFeedbackFlow();
+  audioManager.stopMusic();
+  audioManager.stopAllSfx();
   if (error) logError(message, error);
   stopLoop();
   dom.errorMessage.textContent = error ? `${message}\n\n${error && error.stack ? error.stack : error}` : message;
@@ -816,6 +1923,8 @@ async function init() {
 /** A fresh engine instance (READY state) sharing the same persisted progress. */
 function recreateEngine() {
   resetFeedbackFlow();
+  audioManager.stopMusic();
+  audioManager.stopAllSfx({ preserve: ['uiClick'] });
   engine = new ArticleRunnerEngine({ data: gameData, mode: selectedMode });
   bindEngineEvents();
   if (DEBUG) window.articleRunnerDebug = { get engine() { return engine; } };
@@ -832,6 +1941,7 @@ function bindEngineEvents() {
   });
   engine.on('level:started', (payload) => {
     logEvent('level:started', payload);
+    audioManager.resetForRun();
     resetSpeedProgression();
     resetFeedbackFlow();
     resetCoinSession();
@@ -841,6 +1951,7 @@ function bindEngineEvents() {
   });
   engine.on('question:loaded', (payload) => {
     logEvent('question:loaded', payload);
+    resetQuestionAudioState();
     applyQueuedSpeedIncrease();
     deferCoinSpawn(COIN_CONFIG.questionGraceMs);
     renderQuestion(payload);
@@ -851,6 +1962,7 @@ function bindEngineEvents() {
     highlightChosenGate(payload.to);
     highlightAnswerChoice(payload.to);
     applyLaneLean(payload.from, payload.to);
+    audioManager.play('laneChange', { direction: payload.to - payload.from });
   });
   engine.on('game:tick', () => {
     /* handled by the render loop; no per-tick work here */
@@ -861,31 +1973,43 @@ function bindEngineEvents() {
     // speed it had on approach.
     queueSpeedIncrease();
     renderFeedback(result);
+    playAnswerFeedbackAudio('correct');
   });
   engine.on('answer:wrong', (result) => {
     logEvent('answer:wrong', result);
     renderFeedback(result);
+    playAnswerFeedbackAudio('wrong');
   });
   engine.on('level:completed', (payload) => {
     logEvent('level:completed', payload.summary);
+    audioManager.stopMusic();
+    audioManager.play('levelComplete');
     renderLevelComplete(payload.summary);
   });
   engine.on('game:over', (payload) => {
     logEvent('game:over', payload);
+    audioManager.stopMusic();
+    audioManager.play('gameOver');
     renderGameOver(payload.summary);
   });
   engine.on('game:paused', (payload) => {
     logEvent('game:paused', payload);
+    audioManager.play('pause');
+    audioManager.pauseAll();
   });
   engine.on('game:resumed', (payload) => {
     logEvent('game:resumed', payload);
+    audioManager.resumeAll();
+    audioManager.play('resume');
     deferCoinSpawn(COIN_CONFIG.resumeGraceMs);
     if (payload.toState === GAME_STATES.FEEDBACK) {
       renderPause(false);
       if (activeFeedbackIsCorrect === true) {
-        scheduleAutoContinue(CORRECT_RESUME_AUTO_CONTINUE_MS);
+        if (!resumeFeedbackAutoContinue()) {
+          scheduleAutoContinue(CORRECT_RESUME_AUTO_CONTINUE_MS);
+        }
       } else {
-        requestAnimationFrame(() => dom.btnContinue.focus({ preventScroll: true }));
+        focusWrongFeedbackContinueWhenVisible();
       }
     }
   });
@@ -917,7 +2041,8 @@ function handleStateChanged({ to }) {
       showScreen('game');
       break;
     case GAME_STATES.PAUSED:
-      clearFeedbackAutoContinue();
+      suspendFeedbackAutoContinue();
+      audioManager.pauseAll();
       renderPause(true);
       stopLoop();
       break;
@@ -938,6 +2063,7 @@ function handleStateChanged({ to }) {
     default:
       break;
   }
+  syncRoadsideVideoPlayback();
 }
 
 /* ========================================================================
@@ -968,8 +2094,15 @@ function showScreen(name) {
   const shouldAnimate = name === 'game' && engine && (
     engine.state === GAME_STATES.PLAYING || engine.state === GAME_STATES.FEEDBACK
   );
-  if (shouldAnimate) startLoop();
-  else stopLoop();
+  if (shouldAnimate) {
+    audioManager.resumeAll();
+    audioManager.startMusic();
+    startLoop();
+  } else {
+    audioManager.stopMusic();
+    stopLoop();
+  }
+  syncRoadsideVideoPlayback();
 }
 
 /**
@@ -1120,14 +2253,26 @@ function renderHUD() {
  * 9. Question & lane rendering
  * ====================================================================== */
 
+function setDecisionFocus(active) {
+  const next = Boolean(active);
+  if (decisionFocusActive === next) return;
+  decisionFocusActive = next;
+  dom.screenGame.classList.toggle('is-decision-focus', next);
+}
+
 function renderQuestion(payload) {
+  resetQuestionAudioState();
+  beginPlayerFlightRecovery();
   gateVisualProgress = 0;
+  setDecisionFocus(false);
 
   // Place each fresh gate group at the vanishing point, then advance it
   // through the same projection used by the lane guides.
   const activeLayout = ROAD_LAYOUTS[world.layoutName];
   world.gate.depth = activeLayout.gateStartDepth;
+  world.gate.passDepth = 0;
   world.gate.spawnFade = 0;
+  world.gate.approachDepthPerSecond = 0;
   world.feedbackT = 0;
 
   // Sentence with a visible blank, built from text nodes only.
@@ -1158,8 +2303,10 @@ function renderQuestion(payload) {
   highlightAnswerChoice(payload.playerLane);
   updateAnswerDockState(engine.state);
   hideFeedback();
-  dom.player.classList.remove('player-correct', 'player-wrong');
+  playerFlight.gatePassing = false;
+  dom.player.classList.remove('player-correct', 'player-wrong', 'is-gate-passing');
   renderHUD();
+  cacheGameTopBounds();
 }
 
 /**
@@ -1225,11 +2372,30 @@ function renderPlayer(lane) {
   roadGuideEls.forEach((guide, index) => guide.classList.toggle('is-active', index === lane));
 }
 
-function renderLaneGuides() {
+const gateFrameGeometryCache = {
+  gateCount: 0,
+  size: { point: {} },
+  position: { point: {} },
+  collision: { point: {} },
+};
+
+function getGateFrameGeometry() {
+  const gateCount = Math.min(activeLaneMap?.length || 3, gateEls.length);
+  if (world.W < 40 || gateCount <= 0) return null;
+  gateFrameGeometryCache.gateCount = gateCount;
+  writeGateLayoutAtDepth(gateFrameGeometryCache.size, world.gate.depth, gateCount);
+  writeGateLayoutAtDepth(gateFrameGeometryCache.position, gateRenderDepth(), gateCount);
+  writeGateLayoutAtDepth(gateFrameGeometryCache.collision, gateCollisionDepth(), gateCount);
+  return gateFrameGeometryCache;
+}
+
+function renderLaneGuides(frameGeometry = null) {
   if (world.W < 40 || roadGuideEls.length === 0) return;
-  const gateCount = Math.min(activeLaneMap?.length || 3, roadGuideEls.length);
-  const geometry = getGateLayoutAtDepth(world.gate.depth, gateCount);
-  const collisionGeometry = getGateLayoutAtDepth(gateCollisionDepth(), gateCount);
+  const frame = frameGeometry ?? getGateFrameGeometry();
+  if (!frame) return;
+  const gateCount = Math.min(frame.gateCount, roadGuideEls.length);
+  const geometry = frame.position;
+  const collisionGeometry = frame.collision;
   const guideScale = Math.max(
     0.42,
     Math.min(0.86, (geometry.gateWidth / collisionGeometry.gateWidth) * 0.82),
@@ -1245,7 +2411,7 @@ function renderLaneGuides() {
     const baseOpacity = guide.classList.contains('is-active') ? 0.96 : 0.78;
     guide.style.opacity = (baseOpacity * world.gate.spawnFade).toFixed(3);
     guide.style.transform =
-      `translate3d(${geometry.centers[lane].toFixed(1)}px, ${guideY.toFixed(1)}px, 0) ` +
+      `translate3d(${gateCenterX(geometry, lane).toFixed(1)}px, ${guideY.toFixed(1)}px, 0) ` +
       `translate(-50%, -50%) scale(${guideScale.toFixed(3)})`;
   });
 }
@@ -1323,34 +2489,6 @@ function nextRoadDetailRandom(detail) {
   return detail.randomState / 4294967296;
 }
 
-function buildSideSceneryWorld() {
-  if (!dom.scene || world.sideScenery.roots.left) return;
-
-  for (const side of ['left', 'right']) {
-    const root = document.createElement('div');
-    root.className = `side-scenery side-scenery--${side}`;
-    root.setAttribute('aria-hidden', 'true');
-
-    const layers = [0, 1].map((slot) => {
-      const image = document.createElement('img');
-      image.className = 'side-scenery__frame';
-      image.alt = '';
-      image.draggable = false;
-      image.decoding = 'async';
-      image.loading = 'eager';
-      image.dataset.slot = String(slot);
-      root.appendChild(image);
-      return image;
-    });
-
-    dom.scene.appendChild(root);
-    world.sideScenery.roots[side] = root;
-    world.sideScenery.layers[side] = layers;
-  }
-
-  renderSideScenery();
-}
-
 function recycleRoadDetail(detail) {
   const family = ROAD_DETAIL_FAMILIES[detail.family];
   if (family?.length) {
@@ -1385,7 +2523,6 @@ function buildRoadWorld() {
   const layer = roadLayer();
   if (!layer) return;
   world.built = true;
-  buildSideSceneryWorld();
 
   const make = (cls) => {
     const el = document.createElement('div');
@@ -1403,6 +2540,7 @@ function buildRoadWorld() {
         el,
         line,
         depth: (i + 0.35) / 8,
+        projection: {},
       });
     }
   }
@@ -1420,6 +2558,7 @@ function buildRoadWorld() {
       el,
       ...seed,
       active: true,
+      projection: {},
       randomState: (0x9e3779b9 ^ Math.imul(i + 1, 0x85ebca6b)) >>> 0,
     };
     setRoadDetailAsset(detail, seed.asset);
@@ -1430,7 +2569,14 @@ function buildRoadWorld() {
   for (let i = 0; i < 4; i += 1) {
     const el = make('dust-puff');
     el.style.opacity = '0';
-    world.dusts.push({ el, depth: 0, m: 0, born: 0, size: 0.72 + i * 0.16 });
+    world.dusts.push({
+      el,
+      depth: 0,
+      m: 0,
+      born: 0,
+      size: 0.72 + i * 0.16,
+      projection: {},
+    });
   }
 
   buildCoinPool(layer);
@@ -1443,13 +2589,24 @@ function buildRoadWorld() {
  * pooled elements' base sizes. Cheap, idempotent; called on init, when the
  * game screen shows and on resize.
  */
+function cacheGameTopBounds() {
+  const rect = dom.gameTop?.getBoundingClientRect();
+  world.gameTopBounds = rect && rect.width > 0
+    ? { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
+    : null;
+}
+
 function rebuildWorldGeometry() {
   const rect = dom.runner.getBoundingClientRect();
   if (rect.width < 40 || rect.height < 40) return; // hidden screen — try again when shown
 
   world.W = rect.width;
   world.H = rect.height;
+  world.runnerLeft = rect.left;
+  world.runnerRight = rect.right;
+  cacheGameTopBounds();
   world.layoutName = selectRoadLayoutName(world.W, world.H);
+  world.isPhonePortrait = isPhonePortraitViewport(world.W, world.H);
   dom.runner.dataset.roadLayout = world.layoutName;
   dom.screenGame.dataset.roadLayout = world.layoutName;
   const layout = ROAD_LAYOUTS[world.layoutName];
@@ -1457,8 +2614,12 @@ function rebuildWorldGeometry() {
   world.bottomY = layout.bottomY;
   world.centerX = layout.centerX;
   world.farHalfWidth = layout.farHalfWidth;
-  world.nearHalfWidth = layout.nearHalfWidth;
-  world.playerDepth = layout.playerDepth;
+  world.nearHalfWidth = world.isPhonePortrait
+    ? PHONE_PORTRAIT_VISUALS.nearHalfWidth
+    : layout.nearHalfWidth;
+  world.playerDepth = world.isPhonePortrait
+    ? PHONE_PORTRAIT_VISUALS.playerDepth
+    : layout.playerDepth;
   world.perspectivePower = layout.perspectivePower;
   world.playerHalfWidth = lerp(
     world.farHalfWidth,
@@ -1467,7 +2628,7 @@ function rebuildWorldGeometry() {
   );
   world.baseSpeed = layout.worldSpeed * (prefersReducedMotion ? ROAD_MOTION.reducedFactor : 1);
   world.speed = world.baseSpeed;
-  world.effectiveSpeed = world.baseSpeed * world.motionRate;
+  world.effectiveSpeed = world.baseSpeed * currentGameplayRate() * world.motionRate;
 
   // Preserve the gate's journey when geometry changes while play is frozen.
   // Re-projecting its stored progress prevents a resize/orientation snap.
@@ -1525,9 +2686,19 @@ function rebuildWorldGeometry() {
     Math.max(coinMin, world.W * coinRatio),
   );
   coinSystem.pool.forEach((coin) => {
+    coin.baseSizePx = coinBase;
     coin.el.style.width = `${coinBase.toFixed(1)}px`;
     coin.el.style.height = `${coinBase.toFixed(1)}px`;
   });
+  const coinTargetRect = (dom.hudCoinIcon ?? dom.hudScorePill)?.getBoundingClientRect();
+  coinSystem.hudTargetRect = coinTargetRect
+    ? {
+        left: coinTargetRect.left,
+        top: coinTargetRect.top,
+        width: coinTargetRect.width,
+        height: coinTargetRect.height,
+      }
+    : null;
 
   renderWorldStatic();
   renderLaneGuides();
@@ -1620,7 +2791,6 @@ function drawCodedRoad(layout) {
  * changes); keeps the world intact across resizes and breakpoints. */
 function renderWorldStatic() {
   if (!world.built || world.W < 40) return;
-  renderSideScenery();
   for (const marker of world.markers) renderMarker(marker);
   for (const detail of world.details) renderRoadDetail(detail);
   for (const p of world.dusts) renderDust(p);
@@ -1634,7 +2804,7 @@ function setLayerZ(el, depth) {
 
 function renderMarker(marker) {
   const divider = marker.line === 0 ? -0.5 : 0.5;
-  const p = projectRoadPoint(marker.depth, divider);
+  const p = writeProjectedRoadPoint(marker.projection, marker.depth, divider);
   const scaleX = Math.max(0.16, p.scale);
   marker.el.style.transform =
     `translate3d(${(p.x * world.W).toFixed(1)}px, ${(p.y * world.H).toFixed(1)}px, 0) ` +
@@ -1645,7 +2815,7 @@ function renderMarker(marker) {
 
 function renderRoadDetail(detail) {
   if (!detail.active) return;
-  const p = projectRoadPoint(detail.depth, detail.laneOffset);
+  const p = writeProjectedRoadPoint(detail.projection, detail.depth, detail.laneOffset);
   const visibility = clamp01((p.t - 0.055) / 0.22);
   detail.el.style.zIndex = String(1 + Math.round(clamp01(detail.depth) * 80));
   detail.el.style.transform =
@@ -1655,74 +2825,12 @@ function renderRoadDetail(detail) {
   detail.el.style.opacity = (detail.alpha * visibility * (0.48 + 0.52 * p.t)).toFixed(2);
 }
 
-function renderSideScenery() {
-  if (!world.sideScenery.roots.left) return;
-
-  const frameCount = SIDE_SCENERY_FRAMES.left.length;
-  const phase = ((world.sideScenery.phase % frameCount) + frameCount) % frameCount;
-  const currentIndex = Math.floor(phase);
-  const nextIndex = (currentIndex + 1) % frameCount;
-  const frameProgress = phase - currentIndex;
-  const blend = frameProgress * frameProgress * (3 - 2 * frameProgress);
-
-  if (world.sideScenery.renderedIndex !== currentIndex) {
-    for (const side of ['left', 'right']) {
-      const sources = SIDE_SCENERY_FRAMES[side];
-      const layers = world.sideScenery.layers[side];
-      layers[0].src = sources[currentIndex];
-      layers[1].src = sources[nextIndex];
-    }
-    world.sideScenery.renderedIndex = currentIndex;
-  }
-
-  const cycleProgress = phase / frameCount;
-  const driftWave = 0.5 - Math.cos(cycleProgress * Math.PI * 2) * 0.5;
-  for (const side of ['left', 'right']) {
-    const direction = side === 'left' ? -1 : 1;
-    const layers = world.sideScenery.layers[side];
-    layers[0].style.opacity = (1 - blend).toFixed(3);
-    layers[1].style.opacity = blend.toFixed(3);
-    layers[0].style.transform =
-      `translate3d(${(direction * frameProgress * 3).toFixed(2)}px, ` +
-      `${(frameProgress * 4).toFixed(2)}px, 0) ` +
-      `scale(${(1 + frameProgress * 0.008).toFixed(4)})`;
-    layers[1].style.transform =
-      `translate3d(${(direction * (frameProgress - 1) * 3).toFixed(2)}px, ` +
-      `${((frameProgress - 1) * 4).toFixed(2)}px, 0) ` +
-      `scale(${(1 + (frameProgress - 1) * 0.008).toFixed(4)})`;
-    world.sideScenery.roots[side].style.setProperty(
-      '--side-drift-x',
-      `${(direction * driftWave * 5).toFixed(2)}px`,
-    );
-    world.sideScenery.roots[side].style.setProperty(
-      '--side-drift-y',
-      `${(driftWave * 3).toFixed(2)}px`,
-    );
-    world.sideScenery.roots[side].style.setProperty(
-      '--side-drift-scale',
-      (1 + driftWave * 0.008).toFixed(4),
-    );
-  }
-}
-
-function updateSideSceneryMotion(worldAdvance) {
-  if (!world.sideScenery.roots.left || worldAdvance <= 0) return;
-  const motionFactor = prefersReducedMotion
-    ? SIDE_SCENERY_PLAYBACK.reducedMotionFactor
-    : 1;
-  world.sideScenery.phase = (
-    world.sideScenery.phase +
-    worldAdvance * SIDE_SCENERY_PLAYBACK.framesPerRoadDepth * motionFactor
-  ) % SIDE_SCENERY_FRAMES.left.length;
-  renderSideScenery();
-}
-
 function renderDust(puff) {
   if (puff.born <= 0) {
     puff.el.style.opacity = '0';
     return; // pooled but idle
   }
-  const p = projectRoadPoint(puff.depth, puff.m);
+  const p = writeProjectedRoadPoint(puff.projection, puff.depth, puff.m);
   const lifeSpan = Math.max(0.08, 1 - puff.born);
   const life = clamp01((puff.depth - puff.born) / lifeSpan);
   puff.el.style.transform =
@@ -1733,25 +2841,26 @@ function renderDust(puff) {
 
 /**
  * Advance + render the whole world layer for one frame.
- * rate = the eased slow-motion multiplier (0 pauses every road cue). Every
- * pooled object advances linearly in normalized depth; the nonlinear shared
+ * effectiveRate is the one shared real-time travel rate: base gameplay pace
+ * × answer-speed multiplier × the explicit feedback factor. Every pooled
+ * object advances linearly in normalized depth; the nonlinear shared
  * projection creates the apparent acceleration toward the camera.
  */
-function updateWorldMotion(dt, rate, playerAnimFactor) {
+function updateWorldMotion(dt, effectiveRate) {
   if (!world.built || world.W < 40) return;
-  const worldAdvance = world.baseSpeed * rate * dt;
+  const worldAdvance = world.baseSpeed * effectiveRate * dt;
   const markerAdvance = worldAdvance * ROAD_MOTION.markerMultiplier;
   const detailAdvance = worldAdvance * ROAD_MOTION.detailMultiplier;
-  world.effectiveSpeed = world.baseSpeed * rate;
+  world.effectiveSpeed = world.baseSpeed * effectiveRate;
 
   if (worldAdvance > 0) {
-    updateSideSceneryMotion(worldAdvance);
     for (const marker of world.markers) {
       marker.depth += markerAdvance;
       if (marker.depth >= 1) marker.depth -= 1;
       renderMarker(marker);
     }
     for (const detail of world.details) {
+      if (!detail.active) continue;
       detail.depth += detailAdvance;
       if (detail.depth >= 1) {
         detail.depth -= 1;
@@ -1768,8 +2877,8 @@ function updateWorldMotion(dt, rate, playerAnimFactor) {
     }
 
     // Dust spawning at the fox's ground line (skipped under reduced motion).
-    if (!prefersReducedMotion && playerAnimFactor > 0) {
-      world.dustTimer += dt * 1000 * playerAnimFactor;
+    if (!prefersReducedMotion && effectiveRate > 0) {
+      world.dustTimer += dt * 1000 * effectiveRate;
       if (world.dustTimer >= ROAD_MOTION.dustEveryMs) {
         world.dustTimer %= ROAD_MOTION.dustEveryMs;
         const puff = world.dusts[world.dustIdx++ % world.dusts.length];
@@ -1782,17 +2891,18 @@ function updateWorldMotion(dt, rate, playerAnimFactor) {
   }
 }
 
-function updateRoadMotionRate(dt, state) {
+function updateRoadMotionRate(state, feedbackTime = world.feedbackT) {
   if (state === GAME_STATES.PLAYING) {
     // Never carry feedback crawl into a new approach or brake near collision.
     world.motionRate = 1;
     return world.motionRate;
   }
   if (state !== GAME_STATES.FEEDBACK) return 0;
-  const target = world.feedbackT < ROAD_MOTION.feedbackBurstS ? 1 : world.crawl;
-  const tau = target < world.motionRate ? ROAD_MOTION.decelTau : ROAD_MOTION.accelTau;
-  const blend = 1 - Math.exp(-dt / tau);
-  world.motionRate += (target - world.motionRate) * blend;
+  const target = feedbackTime < ROAD_MOTION.feedbackBurstS ? 1 : 0;
+  // Feedback has one explicit post-collision clock boundary. Keeping the rate
+  // discrete lets native video switch once instead of receiving writes on
+  // every animation frame.
+  world.motionRate = target;
   return world.motionRate;
 }
 
@@ -1827,6 +2937,9 @@ function buildCoinPool(layer) {
       depth: 0,
       active: false,
       collected: false,
+      projection: {},
+      baseSizePx: COIN_CONFIG.baseSizeMinPx,
+      screenRect: { left: 0, top: 0, width: 0, height: 0 },
     });
   }
 }
@@ -1922,7 +3035,12 @@ function spawnCoinEvent() {
 
 function renderCoin(coin) {
   if (!coin.active || world.W < 40) return;
-  const p = projectLanePoint(coin.depth, coin.lane);
+  const p = writeProjectedRoadPoint(coin.projection, coin.depth, coin.lane - 1);
+  const renderedSize = coin.baseSizePx * p.scale;
+  coin.screenRect.left = p.x * world.W - renderedSize / 2;
+  coin.screenRect.top = p.y * world.H - renderedSize * 0.92;
+  coin.screenRect.width = renderedSize;
+  coin.screenRect.height = renderedSize;
   coin.el.style.transform =
     `translate3d(${(p.x * world.W).toFixed(1)}px, ${(p.y * world.H).toFixed(1)}px, 0) ` +
     `translate(-50%, -92%) scale(${p.scale.toFixed(3)})`;
@@ -2003,12 +3121,11 @@ function createCoinFlight(sourceRect, targetRect) {
 function collectCoin(coin) {
   if (!coin.active || coin.collected) return;
   coin.collected = true;
-  // Read both endpoints before hiding the road coin to avoid a
-  // read/write/read layout cycle at collection time.
-  const rect = coin.el.getBoundingClientRect();
-  const targetRect = prefersReducedMotion
-    ? null
-    : (dom.hudCoinIcon ?? dom.hudScorePill).getBoundingClientRect();
+  audioManager.play('coin');
+  // Both endpoints are cached during projection/layout work, so collecting a
+  // coin never forces synchronous layout in the animation frame.
+  const rect = { ...coin.screenRect };
+  const targetRect = prefersReducedMotion ? null : coinSystem.hudTargetRect;
   releaseCoin(coin);
   coinSystem.collected += 1;
 
@@ -2031,9 +3148,9 @@ function settleCoinEffectsForReducedMotion() {
   }
 }
 
-function updateCoins(deltaMs, dt, rate, state) {
+function updateCoins(travelDeltaMs, dt, effectiveRate, state) {
   if (coinSystem.pool.length === 0 || world.W < 40) return;
-  const advance = world.speed * rate * dt;
+  const advance = world.speed * effectiveRate * dt;
   const playerLane = state === GAME_STATES.PLAYING || state === GAME_STATES.FEEDBACK
     ? world.playerLane
     : null;
@@ -2041,6 +3158,7 @@ function updateCoins(deltaMs, dt, rate, state) {
   if (advance > 0) {
     for (const coin of coinSystem.pool) {
       if (!coin.active) continue;
+      const previousRelativeDepth = coin.depth / world.playerDepth;
       coin.depth += advance;
       renderCoin(coin);
 
@@ -2049,7 +3167,7 @@ function updateCoins(deltaMs, dt, rate, state) {
       const playerRelativeDepth = coin.depth / world.playerDepth;
       const inCollectionZone =
         playerRelativeDepth >= COIN_CONFIG.collectionStart &&
-        playerRelativeDepth <= COIN_CONFIG.collectionEnd;
+        previousRelativeDepth <= COIN_CONFIG.collectionEnd;
       if (inCollectionZone && coin.lane === playerLane) {
         collectCoin(coin);
       } else if (playerRelativeDepth > COIN_CONFIG.despawnDepth) {
@@ -2066,7 +3184,7 @@ function updateCoins(deltaMs, dt, rate, state) {
     return;
   }
 
-  coinSystem.nextSpawnMs -= deltaMs;
+  coinSystem.nextSpawnMs -= travelDeltaMs;
   if (
     coinSystem.nextSpawnMs <= 0 &&
     coinSystem.pool.filter((coin) => coin.active).length < COIN_CONFIG.maxActiveCoins
@@ -2079,40 +3197,67 @@ function updateCoins(deltaMs, dt, rate, state) {
  * Gate visual state per engine state:
  *  - PLAYING: linear visual depth follows gateProgress and reaches the
  *    road-bounded collision plane at the exact frame the engine resolves.
- *  - FEEDBACK: the gate stays on that plane and exits with a short opacity
- *    fade, so it never grows behind or over the fox.
+ *  - FEEDBACK: size freezes at that plane while position keeps advancing on
+ *    the shared world clock for one short physical pass, then fades.
  */
-function updateGateVisual(dt, state) {
+function updateGateVisual(realDt, travelDt, state) {
   const g = world.gate;
   if (state === GAME_STATES.PLAYING) {
     const layout = ROAD_LAYOUTS[world.layoutName];
     const start = layout.gateStartDepth;
-    g.depth = lerp(
+    const nextDepth = lerp(
       start,
       gateCollisionDepth(),
       gateVisualProgress,
     );
-    g.spawnFade = Math.min(1, g.spawnFade + dt * RUNNER_GEO.gateSpawnFadePerSecond);
+    if (travelDt > 0 && nextDepth >= g.depth) {
+      g.approachDepthPerSecond = (nextDepth - g.depth) / travelDt;
+    }
+    g.depth = nextDepth;
+    g.passDepth = 0;
+    g.spawnFade = Math.min(1, g.spawnFade + realDt * RUNNER_GEO.gateSpawnFadePerSecond);
   } else if (state === GAME_STATES.FEEDBACK) {
-    world.feedbackT += dt;
+    const previousFeedbackT = world.feedbackT;
+    world.feedbackT += realDt;
     g.depth = gateCollisionDepth();
-    g.spawnFade = Math.max(0, 1 - world.feedbackT / RUNNER_GEO.gateExitFadeSeconds);
+    const remainingPassSeconds = Math.max(
+      0,
+      RUNNER_GEO.gatePassThroughSeconds - previousFeedbackT,
+    );
+    const passFrameShare = realDt > 0
+      ? Math.min(1, remainingPassSeconds / realDt)
+      : 0;
+    g.passDepth = Math.min(
+      RUNNER_GEO.gateMaxPassDepth,
+      g.passDepth +
+        (g.approachDepthPerSecond || world.baseSpeed) * travelDt * passFrameShare,
+    );
+    const fadeDuration = Math.max(
+      0.001,
+      RUNNER_GEO.gateExitFadeSeconds - RUNNER_GEO.gateExitFadeStartSeconds,
+    );
+    g.spawnFade = 1 - clamp01(
+      (world.feedbackT - RUNNER_GEO.gateExitFadeStartSeconds) / fadeDuration,
+    );
   }
 }
 
-function renderGates() {
+function renderGates(frameGeometry = null) {
   const laneMap = activeLaneMap;
   if (!laneMap || laneMap.length === 0) return;
+  const frame = frameGeometry ?? getGateFrameGeometry();
+  if (!frame) return;
   const { farOpacity } = RUNNER_GEO;
   const layout = ROAD_LAYOUTS[world.layoutName];
   const D = world.gate.depth;
-  const gateCount = Math.min(laneMap.length, gateEls.length);
-  const geometry = getGateLayoutAtDepth(D, gateCount);
+  const gateCount = Math.min(laneMap.length, frame.gateCount);
+  const sizeGeometry = frame.size;
+  const positionGeometry = frame.position;
   const gateJourney = clamp01(
     (D - layout.gateStartDepth) /
       Math.max(0.001, gateCollisionDepth() - layout.gateStartDepth),
   );
-  const scale = geometry.gateWidth / RUNNER_GEO.gateBaseArtWidthPx;
+  const scale = sizeGeometry.gateWidth / RUNNER_GEO.gateBaseArtWidthPx;
   const opacity = (farOpacity + (1 - farOpacity) * gateJourney) * world.gate.spawnFade;
 
   gateEls.forEach((el, lane) => {
@@ -2121,8 +3266,8 @@ function renderGates() {
     if (!active) return;
     // (x, y) is the gate's ground point: bottom-centered, standing on the road.
     el.style.transform =
-      `translate3d(${geometry.centers[lane].toFixed(1)}px, ` +
-      `${(geometry.point.y * world.H).toFixed(1)}px, 0) ` +
+      `translate3d(${gateCenterX(positionGeometry, lane).toFixed(1)}px, ` +
+      `${(positionGeometry.point.y * world.H).toFixed(1)}px, 0) ` +
       `translate(-50%, -100%) scale(${scale.toFixed(4)})`;
     el.style.opacity = opacity.toFixed(3);
     // Contact shadow reads stronger as the gate gets close.
@@ -2139,6 +3284,29 @@ function clearFeedbackAutoContinue() {
     window.clearTimeout(feedbackAutoContinueTimer);
     feedbackAutoContinueTimer = null;
   }
+  feedbackAutoContinueDueAt = null;
+  feedbackAutoContinueRemainingMs = null;
+}
+
+function suspendFeedbackAutoContinue() {
+  if (feedbackAutoContinueTimer === null) return;
+  feedbackAutoContinueRemainingMs = Math.max(
+    0,
+    (feedbackAutoContinueDueAt ?? performance.now()) - performance.now(),
+  );
+  window.clearTimeout(feedbackAutoContinueTimer);
+  feedbackAutoContinueTimer = null;
+  feedbackAutoContinueDueAt = null;
+}
+
+function resumeFeedbackAutoContinue() {
+  if (
+    feedbackAutoContinueRemainingMs === null ||
+    engine?.state !== GAME_STATES.FEEDBACK ||
+    activeFeedbackIsCorrect !== true
+  ) return false;
+  scheduleAutoContinue(feedbackAutoContinueRemainingMs);
+  return true;
 }
 
 function resetFeedbackFlow() {
@@ -2146,15 +3314,31 @@ function resetFeedbackFlow() {
   activeFeedbackIsCorrect = null;
 }
 
+function feedbackPoseSettleSeconds() {
+  return RUNNER_GEO.gatePassThroughSeconds + PLAYER_FLIGHT.recoveryDurationMs / 1000;
+}
+
 function scheduleAutoContinue(delay) {
   clearFeedbackAutoContinue();
   const safeDelay = Number.isFinite(delay) ? Math.max(0, delay) : 0;
+  feedbackAutoContinueRemainingMs = safeDelay;
+  feedbackAutoContinueDueAt = performance.now() + safeDelay;
   feedbackAutoContinueTimer = window.setTimeout(() => {
     feedbackAutoContinueTimer = null;
+    feedbackAutoContinueDueAt = null;
+    feedbackAutoContinueRemainingMs = null;
     if (
       engine?.state === GAME_STATES.FEEDBACK &&
       activeFeedbackIsCorrect === true
     ) {
+      const remainingPoseMs = Math.max(
+        0,
+        (feedbackPoseSettleSeconds() - world.feedbackT) * 1000,
+      );
+      if (remainingPoseMs > 1) {
+        scheduleAutoContinue(Math.max(16, remainingPoseMs));
+        return;
+      }
       continueAfterFeedback('auto');
     }
   }, safeDelay);
@@ -2165,6 +3349,7 @@ function hideFeedback() {
   dom.feedback.classList.add('hidden');
   dom.feedback.classList.remove('feedback-correct', 'feedback-wrong');
   dom.screenGame.classList.remove('is-feedback');
+  dom.screenGame.classList.remove('is-world-idle');
   if (dom.scorePop) dom.scorePop.classList.remove('is-visible');
 }
 
@@ -2174,11 +3359,10 @@ function renderFeedback(result) {
   clearFeedbackAutoContinue();
   activeFeedbackIsCorrect = result.isCorrect;
 
-  // World slow-motion through the feedback moment: a short full-speed burst
-  // (the fox punches through the gate), then the world settles to a crawl —
-  // the flying pose stays composed while the gate feedback remains readable.
+  // Keep full motion while the fox punches through the gate, then let correct
+  // feedback retain a light shared crawl. Wrong/manual explanations may rest.
   world.feedbackT = 0;
-  world.crawl = result.isCorrect ? ROAD_MOTION.crawlCorrect : ROAD_MOTION.crawlWrong;
+  dom.screenGame.classList.remove('is-world-idle');
 
   gateEls.forEach((gate) => {
     if (gate.dataset.category === result.correctCategory) gate.classList.add('is-correct');
@@ -2235,11 +3419,27 @@ function renderFeedback(result) {
   dom.btnContinue.hidden = result.isCorrect;
   dom.btnContinue.disabled = result.isCorrect;
   if (result.isCorrect) {
-    scheduleAutoContinue(result.feedbackDelayMs);
+    scheduleAutoContinue(Math.min(result.feedbackDelayMs, CORRECT_FEEDBACK_MAX_MS));
   } else {
-    dom.btnContinue.focus({ preventScroll: true });
+    focusWrongFeedbackContinueWhenVisible();
   }
   renderHUD();
+}
+
+function focusWrongFeedbackContinueWhenVisible() {
+  const focusIfCurrent = () => {
+    if (
+      engine?.state === GAME_STATES.FEEDBACK &&
+      activeFeedbackIsCorrect === false &&
+      !dom.btnContinue.hidden
+    ) dom.btnContinue.focus({ preventScroll: true });
+  };
+
+  if (prefersReducedMotion || Number.parseFloat(getComputedStyle(dom.feedback).opacity) >= 0.95) {
+    requestAnimationFrame(focusIfCurrent);
+    return;
+  }
+  dom.feedback.addEventListener('animationend', focusIfCurrent, { once: true });
 }
 
 /* ========================================================================
@@ -2450,19 +3650,18 @@ function laneGesturesAllowed() {
   );
 }
 
-function pointIsInsideElement(clientX, clientY, element) {
-  if (!element) return false;
-  const rect = element.getBoundingClientRect();
+function pointIsInsideBounds(clientX, clientY, bounds) {
+  if (!bounds) return false;
   return (
-    clientX >= rect.left && clientX <= rect.right &&
-    clientY >= rect.top && clientY <= rect.bottom
+    clientX >= bounds.left && clientX <= bounds.right &&
+    clientY >= bounds.top && clientY <= bounds.bottom
   );
 }
 
 function isLaneGestureBlocked(event) {
   // .game-top has pointer-events:none, so use its bounds as well as the
   // event target to keep the HUD/question area out of the road gesture zone.
-  if (pointIsInsideElement(event.clientX, event.clientY, dom.gameTop)) return true;
+  if (pointIsInsideBounds(event.clientX, event.clientY, world.gameTopBounds)) return true;
   if (!(event.target instanceof Element)) return false;
   if (event.target.closest('.answer-gate')) return false;
   return Boolean(event.target.closest(
@@ -2473,9 +3672,8 @@ function isLaneGestureBlocked(event) {
 }
 
 function laneAtClientX(clientX) {
-  const rect = dom.runner.getBoundingClientRect();
-  if (rect.width <= 0) return world.playerLane;
-  const lane = Math.floor(((clientX - rect.left) / rect.width) * 3);
+  if (world.W <= 0) return world.playerLane;
+  const lane = Math.floor(((clientX - world.runnerLeft) / world.W) * 3);
   return Math.max(0, Math.min(2, lane));
 }
 
@@ -2490,7 +3688,7 @@ function laneAtGestureStart(event) {
 }
 
 function swipeThresholdPx() {
-  const runnerWidth = dom.runner.getBoundingClientRect().width;
+  const runnerWidth = world.W || window.innerWidth;
   const viewportWidth = Math.min(window.innerWidth || runnerWidth, runnerWidth || window.innerWidth);
   return Math.max(36, Math.min(56, viewportWidth * 0.1));
 }
@@ -2499,7 +3697,7 @@ function playerLaneSpacingPx() {
   if (world.W > 0) {
     return projectRoadPoint(world.playerDepth, 0).laneSpacing * world.W;
   }
-  return dom.runner.getBoundingClientRect().width / 3;
+  return (window.innerWidth || 1) / 3;
 }
 
 function renderLaneDrag(deltaX) {
@@ -2683,7 +3881,68 @@ function trapDialogFocus(event) {
   return true;
 }
 
+function playUiAudioCue(name = 'uiClick', options = {}) {
+  if (audioManager.play(name, options)) return;
+  // On the very first interaction resume() may settle between pointerdown and
+  // click. Queue only that first cue; normal gameplay events never wait here.
+  void unlockAudio().then((ready) => {
+    if (ready) audioManager.play(name, options);
+  });
+}
+
+function handleAudioUnlockGesture(event) {
+  if (event.type === 'keydown' && event.repeat) return;
+  void unlockAudio();
+}
+
+function handleUiAudioClick(event) {
+  if (!(event.target instanceof Element)) return;
+  const control = event.target.closest(
+    'button, [role="button"], input[type="button"], input[type="submit"]',
+  );
+  if (!control || control.disabled || control.getAttribute('aria-disabled') === 'true') return;
+
+  if (
+    control === dom.btnPause ||
+    control === dom.btnResume ||
+    control === dom.btnContinue ||
+    control === dom.btnModeLearn ||
+    control === dom.btnModeArcade ||
+    control.classList.contains('answer-gate')
+  ) return;
+
+  if (control.matches(
+    '#btn-hint, [data-audio="hint"], ' +
+    '[aria-controls="hint-text"], [aria-controls="mobile-hint-text"]',
+  )) {
+    playUiAudioCue('hint');
+    return;
+  }
+  playUiAudioCue('uiClick');
+}
+
+function handleHintToggle(event) {
+  const details = event.target;
+  if (
+    typeof HTMLDetailsElement !== 'undefined' &&
+    details instanceof HTMLDetailsElement &&
+    details.open &&
+    (details.contains(dom.hintText) || details.contains(dom.mobileHintText))
+  ) playUiAudioCue('hint');
+}
+
 function bindUiEvents() {
+  // Keep these capture listeners installed: after a mobile browser suspends
+  // audio in the background, the next real gesture can safely resume the same
+  // singleton context without constructing a duplicate.
+  document.addEventListener('pointerdown', handleAudioUnlockGesture, {
+    capture: true,
+    passive: true,
+  });
+  document.addEventListener('keydown', handleAudioUnlockGesture, { capture: true });
+  document.addEventListener('click', handleUiAudioClick);
+  document.addEventListener('toggle', handleHintToggle, true);
+
   // -- start screen --
   dom.btnPlay.addEventListener('click', () => {
     clearStartNote();
@@ -2756,6 +4015,7 @@ function bindUiEvents() {
   dom.btnResume.addEventListener('click', () => togglePause());
   dom.btnQuit.addEventListener('click', () => {
     // Abandon the run: a fresh engine shares the same persisted progress.
+    audioManager.stopAllSfx({ preserve: ['uiClick'] });
     resetFeedbackFlow();
     recreateEngine();
     renderPause(false);
@@ -2776,6 +4036,7 @@ function bindUiEvents() {
     if (next) startGame(next.id);
   });
   dom.btnCompleteMenu.addEventListener('click', () => {
+    audioManager.stopAllSfx({ preserve: ['uiClick'] });
     resetFeedbackFlow();
     showScreen('start');
   });
@@ -2790,6 +4051,7 @@ function bindUiEvents() {
     }
   });
   dom.btnGameOverMenu.addEventListener('click', () => {
+    audioManager.stopAllSfx({ preserve: ['uiClick'] });
     resetFeedbackFlow();
     showScreen('start');
   });
@@ -2808,6 +4070,11 @@ function bindUiEvents() {
   window.addEventListener('keydown', handleKeydown);
 
   // Respect live OS/browser preference changes without reloading the game.
+  // Boot performs asynchronous decoding before these listeners are bound, so
+  // resample once to catch a preference change made while the loader was up.
+  if (reducedMotionQuery && prefersReducedMotion !== reducedMotionQuery.matches) {
+    handleReducedMotionChange(reducedMotionQuery);
+  }
   if (reducedMotionQuery?.addEventListener) {
     reducedMotionQuery.addEventListener('change', handleReducedMotionChange);
   } else if (reducedMotionQuery?.addListener) {
@@ -2818,6 +4085,18 @@ function bindUiEvents() {
   // throttled or suspended background tab.
   document.addEventListener('visibilitychange', () => {
     lastFrameTime = null;
+    audioManager.setPageVisible(!document.hidden);
+    if (document.hidden) {
+      suspendFeedbackAutoContinue();
+      stopLoop();
+    } else {
+      resumeFeedbackAutoContinue();
+      if (
+        currentScreen === 'game' &&
+        (engine?.state === GAME_STATES.PLAYING || engine?.state === GAME_STATES.FEEDBACK)
+      ) startLoop();
+    }
+    syncRoadsideVideoPlayback();
   });
 
   // -- responsive geometry: normalized road phases survive every resize;
@@ -2834,6 +4113,7 @@ function bindUiEvents() {
 }
 
 function setMode(mode) {
+  playUiAudioCue('uiClick');
   selectedMode = mode;
   dom.btnModeLearn.classList.toggle('is-active', mode === GAME_MODES.LEARN);
   dom.btnModeArcade.classList.toggle('is-active', mode === GAME_MODES.ARCADE);
@@ -2863,11 +4143,16 @@ function handleKeydown(event) {
     return;
   }
   if (!engine || currentScreen === 'start' || currentScreen === 'error') return;
+  if (event.repeat && (event.key === ' ' || event.key === 'Enter' || event.key === 'Escape')) {
+    event.preventDefault();
+    return;
+  }
   const state = engine.state;
   const focusedAnswer = event.target.closest?.('.answer-dock__choice');
   if (focusedAnswer && (event.key === ' ' || event.key === 'Enter')) {
     if (state === GAME_STATES.PLAYING) {
       event.preventDefault();
+      playUiAudioCue('uiClick');
       movePlayerToLane(Number(focusedAnswer.dataset.lane));
     }
     return;
@@ -2944,6 +4229,7 @@ function continueAfterFeedback(source = 'manual') {
   if (engine.state !== GAME_STATES.FEEDBACK) return;
   const isAutomatic = source === 'auto';
   if (activeFeedbackIsCorrect !== isAutomatic) return;
+  if (!isAutomatic) audioManager.play('uiClick');
   clearFeedbackAutoContinue();
   safeEngineCall(() => engine.continueAfterFeedback());
 }
@@ -2961,6 +4247,20 @@ const PLAYER_FLIGHT = Object.freeze({
   glideLiftPx: 3,
   hoverPeriodMs: 1800,
   hoverAmplitudePx: Object.freeze({ desktop: 3, tablet: 2.5, mobile: 2 }),
+  decisionFocusProgress: 0.65,
+  descentStartProgress: 0.7,
+  landingCompleteProgress: 0.94,
+  recoveryDurationMs: 320,
+  gateLayerStartProgress: 0.92,
+  cruisePitchDeg: -1.25,
+  landingPitchDeg: 0,
+  gateOpeningWidthRatio: 0.588,
+  foxVisibleWidthRatio: 0.905,
+  openingBreathingRatio: 1.18,
+  openingCenterAboveGroundRatio: 0.29,
+  landingDropRatioByLayout: Object.freeze({ desktop: 0.15, tablet: 0.15, mobile: 0.2 }),
+  landingDropMinPxByLayout: Object.freeze({ desktop: 15, tablet: 12, mobile: 10 }),
+  landingDropMaxPxByLayout: Object.freeze({ desktop: 35, tablet: 28, mobile: 25 }),
 });
 
 const reducedMotionQuery =
@@ -2983,6 +4283,15 @@ const playerFlight = {
   bankDeg: 0,
   glideY: 0,
   hoverClockMs: 0,
+  hoverY: 0,
+  hoverNormalized: 0,
+  heightY: 0,
+  landingAmount: 0,
+  landingDropPx: 0,
+  recoveryStartHeightY: 0,
+  recoveryElapsedMs: 0,
+  recovering: false,
+  gatePassing: false,
 };
 
 /* ------------------------------------------------------------------------
@@ -3106,9 +4415,97 @@ async function decodeDocumentImage(image) {
 
 async function preloadDocumentImages() {
   await waitForWindowLoad();
-  const images = [...document.images].filter((image) => image.getAttribute('src'));
+  const explicitSources = new Set([
+    ...PRELOAD_ASSETS.critical,
+    ...PRELOAD_ASSETS.optional,
+    ...Object.values(PRELOAD_ASSETS.byLayout).flat(),
+  ].flatMap((entry) => entry.candidates));
+  const images = [...document.images].filter((image) => {
+    const source = image.getAttribute('src')?.replace(/^\.\//, '');
+    if (!source || explicitSources.has(source)) return false;
+    if (preloadLayoutName !== 'desktop' && image.closest('.world-sign')) return false;
+    return true;
+  });
   await Promise.all(images.map(decodeDocumentImage));
   return images;
+}
+
+function preloadRoadsideVideo(entry) {
+  const side = entry.side;
+  const video = roadsideVideos[side];
+  if (!video) return Promise.reject(new Error(`Missing ${side} roadside video element`));
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timeoutId = null;
+
+    const cleanup = () => {
+      if (timeoutId !== null) clearTimeout(timeoutId);
+      video.removeEventListener('canplay', onReady);
+      video.removeEventListener('error', onError);
+      document.removeEventListener('visibilitychange', onSuspended);
+      if (reducedMotionQuery?.removeEventListener) {
+        reducedMotionQuery.removeEventListener('change', onSuspended);
+      } else {
+        reducedMotionQuery?.removeListener?.(onSuspended);
+      }
+    };
+    const settle = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback(value);
+    };
+    const onReady = () => {
+      markRoadsideVideoReady(side);
+      settle(resolve, {
+        entry,
+        src: video.currentSrc || entry.candidates[0],
+        video,
+      });
+    };
+    const onError = () => {
+      markRoadsideVideoFailed(side);
+      settle(reject, new Error(`Could not buffer ${entry.candidates[0]}`));
+    };
+    const onSuspended = () => {
+      if (!document.hidden && !reducedMotionQuery?.matches) return;
+      // A hidden page or newly requested reduced-motion view does not make
+      // the source invalid. Let boot continue with the static fallback and
+      // allow a later visible/non-reduced canplay event to recover it.
+      settle(resolve, {
+        entry,
+        src: video.currentSrc || entry.candidates[0],
+        video,
+        skipped: true,
+      });
+    };
+
+    video.addEventListener('canplay', onReady);
+    video.addEventListener('error', onError);
+    document.addEventListener('visibilitychange', onSuspended);
+    if (reducedMotionQuery?.addEventListener) {
+      reducedMotionQuery.addEventListener('change', onSuspended);
+    } else {
+      reducedMotionQuery?.addListener?.(onSuspended);
+    }
+    timeoutId = setTimeout(() => {
+      if (document.hidden || reducedMotionQuery?.matches) {
+        onSuspended();
+        return;
+      }
+      // Lock this side to the static fallback for the run. A late canplay must
+      // not fade one panel in after gameplay has already begun.
+      markRoadsideVideoFailed(side, true);
+      settle(reject, new Error(`Timed out buffering ${entry.candidates[0]}`));
+    }, ROADSIDE_VIDEO_PLAYBACK.bufferTimeoutMs);
+
+    if (video.readyState >= 3) {
+      onReady();
+    } else {
+      video.load();
+    }
+  });
 }
 
 async function preloadAsset(entry) {
@@ -3118,6 +4515,12 @@ async function preloadAsset(entry) {
   if (entry.kind === 'document-images') {
     const images = await preloadDocumentImages();
     const result = { entry, src: 'document-images', image: images };
+    decodedAssetsById.set(entry.id, result);
+    return result;
+  }
+
+  if (entry.kind === 'roadside-video') {
+    const result = await preloadRoadsideVideo(entry);
     decodedAssetsById.set(entry.id, result);
     return result;
   }
@@ -3145,11 +4548,14 @@ function activePreloadManifest() {
     preloadLayoutName = selectRoadLayoutName(width, height);
   }
 
-  return [
+  const manifest = [
     ...PRELOAD_ASSETS.critical.map((entry) => ({ ...entry, critical: true })),
     ...PRELOAD_ASSETS.byLayout[preloadLayoutName].map((entry) => ({ ...entry, critical: true })),
     ...PRELOAD_ASSETS.optional.map((entry) => ({ ...entry, critical: false })),
   ];
+  return prefersReducedMotion
+    ? manifest.filter((entry) => entry.kind !== 'roadside-video')
+    : manifest;
 }
 
 function updateLoaderProgress(completed, total) {
@@ -3224,8 +4630,8 @@ function prepareFlyingPlayerElement(src = FLYING_FOX_SRC) {
   dom.playerImg.alt = '';
   dom.playerImg.draggable = false;
   dom.playerImg.decoding = 'async';
-  dom.playerImg.width = 1254;
-  dom.playerImg.height = 1254;
+  dom.playerImg.width = 640;
+  dom.playerImg.height = 640;
   if (dom.playerFrame && (
     dom.playerFrame.children.length !== 1 || dom.playerFrame.firstElementChild !== dom.playerImg
   )) {
@@ -3266,7 +4672,12 @@ async function preloadGameAssets() {
       await preloadAsset(entry);
       completed += 1;
     } catch (error) {
-      criticalFailures.push({ entry, error });
+      if (entry.fallbackAllowed) {
+        completed += 1;
+        optionalAssetFailures.add(entry.id);
+      } else {
+        criticalFailures.push({ entry, error });
+      }
     } finally {
       updateLoaderProgress(completed, criticalManifest.length);
     }
@@ -3385,15 +4796,61 @@ function playerLaneOffsetPx(lane) {
   return (lanePoint.x - world.centerX) * world.W;
 }
 
+function playerGateFitGeometry() {
+  const gateCount = Math.min(activeLaneMap?.length || 3, gateEls.length || 3);
+  const gateGeometry = getGateLayoutAtDepth(gateCollisionDepth(), gateCount);
+  const playerWidthRatio = world.isPhonePortrait
+    ? PHONE_PORTRAIT_VISUALS.playerGateWidthRatio
+    : PLAYER_FLIGHT.gateOpeningWidthRatio /
+      (PLAYER_FLIGHT.openingBreathingRatio * PLAYER_FLIGHT.foxVisibleWidthRatio);
+  const playerSizePx = gateGeometry.gateWidth * playerWidthRatio;
+  const dropRatio = PLAYER_FLIGHT.landingDropRatioByLayout[world.layoutName] ?? 0.15;
+  const minDrop = PLAYER_FLIGHT.landingDropMinPxByLayout[world.layoutName] ?? 10;
+  const maxDrop = PLAYER_FLIGHT.landingDropMaxPxByLayout[world.layoutName] ?? 35;
+  const landingDropPx = Math.min(maxDrop, Math.max(minDrop, playerSizePx * dropRatio));
+  const gateHeightPx = gateGeometry.gateWidth / RUNNER_GEO.gateArtAspectRatio;
+  return { gateGeometry, playerSizePx, landingDropPx, gateHeightPx };
+}
+
 function paintPlayerFlightTransform() {
+  const landingAmount = clamp01(playerFlight.landingAmount);
+  const pitchDeg = lerp(
+    PLAYER_FLIGHT.cruisePitchDeg,
+    PLAYER_FLIGHT.landingPitchDeg,
+    landingAmount,
+  );
+  const hoverShadow = playerFlight.hoverNormalized * (1 - landingAmount);
+  const shadowScale = 0.96 + landingAmount * 0.12 + hoverShadow * 0.012;
+  const shadowOpacity = 0.27 + landingAmount * 0.09 + hoverShadow * 0.015;
   dom.player.style.setProperty('--player-lane-offset', `${playerFlight.currentX.toFixed(2)}px`);
   dom.player.style.setProperty('--player-bank-angle', `${playerFlight.bankDeg.toFixed(3)}deg`);
   dom.player.style.setProperty('--player-glide-y', `${playerFlight.glideY.toFixed(2)}px`);
+  dom.player.style.setProperty('--player-hover-y', `${playerFlight.hoverY.toFixed(2)}px`);
+  dom.player.style.setProperty('--player-flight-y', `${playerFlight.heightY.toFixed(2)}px`);
+  dom.player.style.setProperty('--player-flight-pitch', `${pitchDeg.toFixed(3)}deg`);
+  dom.player.style.setProperty('--player-shadow-scale', shadowScale.toFixed(4));
+  dom.player.style.setProperty('--player-shadow-opacity', shadowOpacity.toFixed(3));
 }
 
 function syncPlayerFlightToLayout() {
   if (world.W < 40) return;
+  const {
+    gateGeometry,
+    playerSizePx,
+    landingDropPx,
+    gateHeightPx,
+  } = playerGateFitGeometry();
+  dom.player.style.width = `${playerSizePx.toFixed(2)}px`;
+  const computedBottomPx = Number.parseFloat(getComputedStyle(dom.player).bottom) || 0;
+  const unshiftedPlayerCenterY = world.H - computedBottomPx - playerSizePx / 2;
+  const landingCenterY =
+    gateGeometry.point.y * world.H -
+    gateHeightPx * PLAYER_FLIGHT.openingCenterAboveGroundRatio;
+  const cruiseLiftPx = landingCenterY - unshiftedPlayerCenterY - landingDropPx;
+  dom.player.style.setProperty('--player-flight-lift', `${cruiseLiftPx.toFixed(2)}px`);
+
   const offset = playerLaneOffsetPx(world.playerLane);
+  const priorLandingAmount = playerFlight.landingAmount;
   playerFlight.ready = true;
   playerFlight.currentX = offset;
   playerFlight.startX = offset;
@@ -3405,7 +4862,19 @@ function syncPlayerFlightToLayout() {
   playerFlight.bankStartDeg = 0;
   playerFlight.bankDeg = 0;
   playerFlight.glideY = 0;
+  playerFlight.landingDropPx = landingDropPx;
+  playerFlight.heightY = landingDropPx * priorLandingAmount;
+  if (playerFlight.recovering) {
+    playerFlight.recoveryStartHeightY = playerFlight.heightY;
+    playerFlight.recoveryElapsedMs = 0;
+  }
   paintPlayerFlightTransform();
+}
+
+function beginPlayerFlightRecovery() {
+  playerFlight.recoveryElapsedMs = 0;
+  playerFlight.recoveryStartHeightY = playerFlight.heightY;
+  playerFlight.recovering = playerFlight.heightY > 0.1;
 }
 
 function beginPlayerLaneTransition(lane) {
@@ -3496,26 +4965,88 @@ function updatePlayerLaneFlight(deltaMs) {
     playerFlight.bankDeg = 0;
     playerFlight.glideY = 0;
   }
-  paintPlayerFlightTransform();
 }
 
 function updatePlayerHover(deltaMs) {
-  if (prefersReducedMotion) return;
+  if (prefersReducedMotion) {
+    playerFlight.hoverY = 0;
+    playerFlight.hoverNormalized = 0;
+    return;
+  }
   playerFlight.hoverClockMs =
     (playerFlight.hoverClockMs + deltaMs) % PLAYER_FLIGHT.hoverPeriodMs;
   const phase = (playerFlight.hoverClockMs / PLAYER_FLIGHT.hoverPeriodMs) * Math.PI * 2;
-  const amplitude = PLAYER_FLIGHT.hoverAmplitudePx[world.layoutName] ?? 3;
+  const baseAmplitude = PLAYER_FLIGHT.hoverAmplitudePx[world.layoutName] ?? 3;
+  const amplitude = baseAmplitude * (1 - playerFlight.landingAmount * 0.75);
   const hoverY = Math.sin(phase) * amplitude;
-  const normalized = amplitude > 0 ? hoverY / amplitude : 0;
-  dom.player.style.setProperty('--player-hover-y', `${hoverY.toFixed(2)}px`);
-  dom.player.style.setProperty('--player-shadow-scale', (1 + normalized * 0.018).toFixed(4));
-  dom.player.style.setProperty('--player-shadow-opacity', (0.32 + normalized * 0.025).toFixed(3));
+  playerFlight.hoverY = hoverY;
+  playerFlight.hoverNormalized = baseAmplitude > 0 ? hoverY / baseAmplitude : 0;
+}
+
+function updatePlayerGateFlight(deltaMs, state) {
+  if (state === GAME_STATES.FEEDBACK) {
+    playerFlight.recovering = false;
+    const recoveryElapsedMs = Math.max(
+      0,
+      world.feedbackT * 1000 - RUNNER_GEO.gatePassThroughSeconds * 1000,
+    );
+    const recoveryProgress = clamp01(
+      recoveryElapsedMs / PLAYER_FLIGHT.recoveryDurationMs,
+    );
+    playerFlight.heightY = lerp(
+      playerFlight.landingDropPx,
+      0,
+      easeInOutSine(recoveryProgress),
+    );
+    playerFlight.landingAmount = playerFlight.landingDropPx > 0
+      ? clamp01(playerFlight.heightY / playerFlight.landingDropPx)
+      : 0;
+  } else if (gateVisualProgress >= PLAYER_FLIGHT.descentStartProgress) {
+    playerFlight.recovering = false;
+    const descentProgress = clamp01(
+      (gateVisualProgress - PLAYER_FLIGHT.descentStartProgress) /
+      (PLAYER_FLIGHT.landingCompleteProgress - PLAYER_FLIGHT.descentStartProgress),
+    );
+    playerFlight.landingAmount = easeInOutSine(descentProgress);
+    playerFlight.heightY = playerFlight.landingDropPx * playerFlight.landingAmount;
+  } else if (playerFlight.recovering) {
+    playerFlight.recoveryElapsedMs = Math.min(
+      PLAYER_FLIGHT.recoveryDurationMs,
+      playerFlight.recoveryElapsedMs + deltaMs,
+    );
+    const recoveryProgress =
+      playerFlight.recoveryElapsedMs / PLAYER_FLIGHT.recoveryDurationMs;
+    playerFlight.heightY = lerp(
+      playerFlight.recoveryStartHeightY,
+      0,
+      easeInOutSine(recoveryProgress),
+    );
+    playerFlight.landingAmount = playerFlight.landingDropPx > 0
+      ? clamp01(playerFlight.heightY / playerFlight.landingDropPx)
+      : 0;
+    if (recoveryProgress >= 1) playerFlight.recovering = false;
+  } else {
+    playerFlight.heightY = 0;
+    playerFlight.landingAmount = 0;
+  }
+
+  const gateIsPassing =
+    (state === GAME_STATES.PLAYING &&
+      gateVisualProgress >= PLAYER_FLIGHT.gateLayerStartProgress) ||
+    (state === GAME_STATES.FEEDBACK &&
+      world.feedbackT < RUNNER_GEO.gateExitFadeSeconds);
+  if (playerFlight.gatePassing !== gateIsPassing) {
+    playerFlight.gatePassing = gateIsPassing;
+    dom.player.classList.toggle('is-gate-passing', gateIsPassing);
+  }
 }
 
 function updatePlayerFlightAnimation(deltaMs, state) {
   if (state !== GAME_STATES.PLAYING && state !== GAME_STATES.FEEDBACK) return;
   updatePlayerLaneFlight(deltaMs);
+  updatePlayerGateFlight(deltaMs, state);
   updatePlayerHover(deltaMs);
+  paintPlayerFlightTransform();
 }
 
 function settlePlayerFlightPose() {
@@ -3533,9 +5064,15 @@ function settlePlayerFlightPose() {
   playerFlight.bankStartDeg = 0;
   playerFlight.bankDeg = 0;
   playerFlight.glideY = 0;
-  dom.player.style.setProperty('--player-hover-y', '0px');
-  dom.player.style.setProperty('--player-shadow-scale', '1');
-  dom.player.style.setProperty('--player-shadow-opacity', '0.32');
+  playerFlight.hoverY = 0;
+  playerFlight.hoverNormalized = 0;
+  playerFlight.heightY = 0;
+  playerFlight.landingAmount = 0;
+  playerFlight.recoveryStartHeightY = 0;
+  playerFlight.recoveryElapsedMs = 0;
+  playerFlight.recovering = false;
+  playerFlight.gatePassing = false;
+  dom.player.classList.remove('is-gate-passing');
   paintPlayerFlightTransform();
 }
 
@@ -3549,10 +5086,33 @@ function handleReducedMotionChange(event) {
   world.baseSpeed = layout.worldSpeed * (prefersReducedMotion ? ROAD_MOTION.reducedFactor : 1);
   world.speed = world.baseSpeed;
   if (prefersReducedMotion) {
+    const preservedGateFlight = {
+      heightY: playerFlight.heightY,
+      landingAmount: playerFlight.landingAmount,
+      recoveryStartHeightY: playerFlight.recoveryStartHeightY,
+      recoveryElapsedMs: playerFlight.recoveryElapsedMs,
+      recovering: playerFlight.recovering,
+      gatePassing: playerFlight.gatePassing,
+    };
     settlePlayerFlightPose();
+    Object.assign(playerFlight, preservedGateFlight);
+    dom.player.classList.toggle('is-gate-passing', playerFlight.gatePassing);
+    paintPlayerFlightTransform();
     settleCoinEffectsForReducedMotion();
+    for (const video of Object.values(roadsideVideos)) {
+      if (!video) continue;
+      video.preload = 'none';
+      roadsidePanelFor(video)?.classList.remove('is-ready');
+    }
+  } else {
+    playerFlight.hoverClockMs = 0;
+    for (const video of Object.values(roadsideVideos)) {
+      if (!video) continue;
+      video.preload = 'auto';
+      video.load();
+    }
   }
-  else playerFlight.hoverClockMs = 0;
+  syncRoadsideVideoPlayback();
 }
 
 /* ========================================================================
@@ -3561,6 +5121,7 @@ function handleReducedMotionChange(event) {
 
 function startLoop() {
   if (rafId !== null) return;
+  dom.screenGame.classList.remove('is-world-idle');
   lastFrameTime = null;
   rafId = requestAnimationFrame(loop);
 }
@@ -3578,15 +5139,20 @@ function loop(now) {
   lastFrameTime = now;
 
   try {
-    if (!engine) return;
+    if (!engine || document.hidden) return;
 
-    const visualDeltaMs = Math.min(deltaMs, ROAD_MOTION.maxDeltaMs);
-    const playingDeltaMs = Math.min(
-      deltaMs * ROAD_MOTION.playingTimeScale * speedMultiplier,
-      ROAD_MOTION.maxDeltaMs,
+    // Clamp only the abnormal real-frame gap, then scale it. The engine keeps
+    // its own 100ms safety limit, so larger scaled totals are fed in bounded
+    // substeps. This makes 30fps and 60fps complete an approach identically.
+    const visualDeltaMs = Math.min(
+      Math.max(0, deltaMs),
+      ROAD_MOTION.maxFrameDeltaMs,
     );
+    const gameplayRate = currentGameplayRate();
+    const playingDeltaMs = visualDeltaMs * gameplayRate;
+    const stateBeforeUpdate = engine.state;
     if (engine.state === GAME_STATES.PLAYING) {
-      engine.update(playingDeltaMs);
+      advanceEngineByScaledTime(playingDeltaMs);
       // update() can auto-resolve the question (PLAYING → FEEDBACK) and the
       // engine resets its progress — re-check before adopting the value, or
       // the gates would flash back to the horizon on timed resolutions.
@@ -3598,42 +5164,74 @@ function loop(now) {
       }
     }
     const state = engine.state;
+    const enteredFeedbackThisFrame =
+      stateBeforeUpdate === GAME_STATES.PLAYING && state === GAME_STATES.FEEDBACK;
 
     if (currentScreen === 'game') {
+      if (
+        state === GAME_STATES.PLAYING &&
+        !audioEventState.gateApproachPlayed &&
+        gateVisualProgress >= AUDIO_GATE_APPROACH_PROGRESS
+      ) {
+        audioEventState.gateApproachPlayed = true;
+        audioManager.play('gateApproach');
+      }
       const visualStateActive =
         state === GAME_STATES.PLAYING || state === GAME_STATES.FEEDBACK;
       if (!visualStateActive) {
+        setDecisionFocus(false);
         updateDebugBar(now);
         return;
       }
-      // Hold the exact approach clock through the collision burst. Once the
-      // gate is fully behind the fox, FEEDBACK may settle to its readable
-      // real-time crawl without looking like pre-gate braking.
-      const feedbackKeepsApproachSpeed =
-        state === GAME_STATES.FEEDBACK &&
-        world.feedbackT < ROAD_MOTION.feedbackBurstS;
-      const gateDeltaMs = state === GAME_STATES.PLAYING
-        ? playingDeltaMs
-        : visualDeltaMs;
-      const worldDeltaMs =
-        state === GAME_STATES.PLAYING || feedbackKeepsApproachSpeed
-          ? playingDeltaMs
-          : visualDeltaMs;
-      const gateDt = gateDeltaMs / 1000;
-      const worldDt = worldDeltaMs / 1000;
+      const realDt = visualDeltaMs / 1000;
+      // The resolve frame draws the gate at the collision plane. Begin the
+      // physical pass clock on the following frame so a 30fps/slow frame
+      // cannot silently consume most of the readable 160ms pass-through.
+      const gateRealDt = enteredFeedbackThisFrame ? 0 : realDt;
+      const gateTravelDt = gateRealDt * gameplayRate;
+      const feedbackTimeBeforeFrame = world.feedbackT;
 
       // Gate exit first: it owns the feedback clock (feedbackT).
-      updateGateVisual(gateDt, state);
+      updateGateVisual(gateRealDt, gateTravelDt, state);
 
-      // One shared rate drives scenery, markers, details, dust and coins.
-      const rate = updateRoadMotionRate(gateDt, state);
+      // One authoritative rate drives scenery, markers, details, dust and
+      // coins. No gate-distance term can alter it during PLAYING.
+      const feedbackRate = updateRoadMotionRate(state, feedbackTimeBeforeFrame);
+      const effectiveWorldRate = gameplayRate * feedbackRate;
+      // Native video changes only on the pass/crawl boundary. It receives no
+      // per-frame playbackRate or currentTime writes.
+      if (
+        state === GAME_STATES.FEEDBACK &&
+        roadsideVideoState.ratePhase !== roadsideVideoRatePhase(state, feedbackRate)
+      ) syncRoadsideVideoPlayback();
+      setDecisionFocus(
+        state === GAME_STATES.PLAYING &&
+        gateVisualProgress >= PLAYER_FLIGHT.decisionFocusProgress,
+      );
       updatePlayerFlightAnimation(visualDeltaMs, state);
 
-      updateWorldMotion(worldDt, rate, rate);
-      updateCoins(worldDeltaMs, worldDt, rate, state);
-      renderGates();
-      renderLaneGuides();
+      if (effectiveWorldRate > 0) {
+        updateWorldMotion(realDt, effectiveWorldRate);
+        updateCoins(
+          visualDeltaMs * effectiveWorldRate,
+          realDt,
+          effectiveWorldRate,
+          state,
+        );
+      }
+      const gateFrameGeometry = getGateFrameGeometry();
+      renderGates(gateFrameGeometry);
+      renderLaneGuides(gateFrameGeometry);
       updateDebugBar(now);
+
+      if (
+        state === GAME_STATES.FEEDBACK &&
+        world.feedbackT >= feedbackPoseSettleSeconds()
+      ) {
+        settlePlayerFlightPose();
+        dom.screenGame.classList.add('is-world-idle');
+        stopLoop();
+      }
     }
   } catch (error) {
     fatalError('The game loop hit an unexpected error. Progress in localStorage is untouched.', error);
@@ -3652,4 +5250,5 @@ dom.loaderRetry.addEventListener('click', () => {
   void bootGame();
 });
 
+configureRoadsideVideos();
 void bootGame();
