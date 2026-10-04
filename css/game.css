@@ -1833,7 +1833,11 @@ body.debug .answer-gate .gate-key {
   .app { min-height: 0; }
 
   .runner {
-    --player-bottom: max(10%, calc(66px + env(safe-area-inset-bottom)));
+    --player-mobile-bottom: clamp(100px, 16dvh, 148px);
+    --player-bottom: max(
+      var(--player-mobile-bottom),
+      calc(66px + env(safe-area-inset-bottom))
+    );
     --lane-marker-width: 7px;
     --lane-marker-height: 62px;
   }
@@ -1975,9 +1979,10 @@ body.debug .answer-gate .gate-key {
   }
 
   .gates { --gate-w: 27cqw; --gate-h-cap: 21cqh; }
-  .answer-gate__label { font-size: clamp(11px, 12cqw, 34px); }
+  .answer-gate__label { font-size: clamp(13px, 12.5cqw, 36px); }
   .answer-gate[data-category="none"] .answer-gate__label {
-    font-size: clamp(10px, 10.25cqw, 30px);
+    font-size: clamp(11px, 9.75cqw, 31px);
+    letter-spacing: -0.01em;
   }
 
   .player {

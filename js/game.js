@@ -106,6 +106,7 @@ const RUNNER_GEO = {
   gateSpacingFactor: 0.84,
   gateDecisionSpacingFactor: 1,
   gateSlotFill: 0.9,
+  gateWidthScale: 1,
   gateSizeBoost: 1.085,
   gateSizeBoostStart: 0.02,
   gateSizeBoostEnd: 0.32,
@@ -223,15 +224,17 @@ const ROAD_LAYOUTS = {
     nearHalfWidth: 0.56,
     farLaneSpacing: 0.12,
     nearLaneSpacing: 0.3733,
-    playerDepth: 0.88,
+    playerDepth: 0.83,
     worldSpeed: 0.55,
     perspectivePower: 2,
     gateStartDepth: 0.02,
     roadShoulder: 0.016,
     gateSpacingFactor: 0.78,
-    gateDecisionSpacingFactor: 0.9,
-    gateSlotFill: 0.72,
-    gateSizeBoost: 1.15,
+    gateDecisionSpacingFactor: 1.04,
+    gateSlotFill: 0.9,
+    gateWidthScale: 1.1,
+    gateSizeBoost: 1.18,
+    minLabelPx: 13,
     minGateScale: 0.22,
     maxGateScale: 1.22,
     markerWidthPx: 7,
@@ -796,7 +799,6 @@ async function init() {
   bindUiEvents();
   renderLevelList();
   showScreen('start');
-  startLoop();
   return true;
 }
 
@@ -901,6 +903,7 @@ function handleStateChanged({ to }) {
     case GAME_STATES.PAUSED:
       clearFeedbackAutoContinue();
       renderPause(true);
+      stopLoop();
       break;
     case GAME_STATES.LEVEL_COMPLETE:
       resetFeedbackFlow();
@@ -945,6 +948,12 @@ function showScreen(name) {
   if (name === 'start') {
     renderLevelList();
   }
+
+  const shouldAnimate = name === 'game' && engine && (
+    engine.state === GAME_STATES.PLAYING || engine.state === GAME_STATES.FEEDBACK
+  );
+  if (shouldAnimate) startLoop();
+  else stopLoop();
 }
 
 /**
@@ -1531,7 +1540,9 @@ function rebuildWorldGeometry() {
   // is projected at every depth, while renderGates owns visual-only spacing.
   const laneWidthAtPlayer = playerGround.laneSpacing * world.W;
   const gateSlotWidthAtPlayer =
-    laneWidthAtPlayer * (layout.gateSlotFill ?? RUNNER_GEO.gateSlotFill);
+    laneWidthAtPlayer *
+    (layout.gateSlotFill ?? RUNNER_GEO.gateSlotFill) *
+    (layout.gateWidthScale ?? RUNNER_GEO.gateWidthScale);
   dom.gatesRoot.style.setProperty(
     '--gate-road-w',
     `${gateSlotWidthAtPlayer.toFixed(1)}px`,
@@ -1764,6 +1775,7 @@ function updateSceneryMotion(worldAdvance) {
       ? SCENERY_PARALLAX.mid
       : SCENERY_PARALLAX.near[world.layoutName];
     for (const item of world.scenery[layerName]) {
+      if (!item.active) continue;
       item.depth += worldAdvance * ratio;
       if (item.depth >= SCENERY_DEPTH_LIMIT) {
         item.depth = 0.025 + (item.depth - SCENERY_DEPTH_LIMIT);
@@ -2167,8 +2179,9 @@ function renderGates() {
   // Container-query sizes only resolve on screen — measure lazily on the
   // first visible frame rather than while #screen-game is display:none.
   if (gateLabelBaseStale) refreshGateLabelBase();
-  const { farOpacity, minLabelPx, maxLabelBoost, maxLabelWidthRatio } = RUNNER_GEO;
+  const { farOpacity, maxLabelBoost, maxLabelWidthRatio } = RUNNER_GEO;
   const layout = ROAD_LAYOUTS[world.layoutName];
+  const minLabelPx = layout.minLabelPx ?? RUNNER_GEO.minLabelPx;
   const D = world.gate.depth;
   const centerPoint = projectRoadPoint(D, 0);
   const playerPoint = projectRoadPoint(world.playerDepth, 0);
@@ -3666,7 +3679,7 @@ function loop(now) {
 
     const visualDeltaMs = Math.min(deltaMs, ROAD_MOTION.maxDeltaMs);
     if (engine.state === GAME_STATES.PLAYING) {
-      engine.update(deltaMs); // engine clamps huge deltas (tab switches) itself
+      engine.update(visualDeltaMs);
       // update() can auto-resolve the question (PLAYING → FEEDBACK) and the
       // engine resets its progress — re-check before adopting the value, or
       // the gates would flash back to the horizon on timed resolutions.
