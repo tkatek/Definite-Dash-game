@@ -98,9 +98,7 @@ bank/glide response, calm hover, and the ground shadow. Those transforms stay
 separate so pointer dragging and lane changes cannot overwrite one another.
 Pause freezes the exact current pose, while reduced-motion mode removes hover
 and glide without affecting lane input. Level complete and Arcade game over
-settle the fox cleanly. `js/player-animation.js` and its tests preserve the
-earlier approved run-cycle source contract, but they are not imported by the
-live controller.
+settle the fox cleanly.
 
 ### Environment / scene system (finalized, locked)
 
