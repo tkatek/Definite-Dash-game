@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Gate sharpness A/B test — animated</title>
+<style>
+  body { margin: 0; background: #9ec77a; font-family: Arial, sans-serif; }
+  .grid { display: grid; grid-template-columns: 400px 400px; gap: 24px; padding: 44px 20px 20px; }
+  .cell { position: relative; height: 420px; }
+  .tag { position: absolute; top: -26px; left: 0; font: 700 13px Arial; color: #000; background: #fff; padding: 2px 6px; border-radius: 4px; white-space: nowrap; z-index: 10; }
+
+  .gate { position: absolute; bottom: 20px; left: 200px; }
+  .gate img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+  .gate .lbl { position: absolute; top: 37.5%; left: 50%; transform: translate(-50%,-50%);
+    color:#fff; font: 900 12cqw/1 Arial; letter-spacing: 0.01em; white-space: nowrap;
+    text-shadow: 0 0.07em 0 #15326b, 0 0.12em 0.16em rgba(11,28,60,.42); pointer-events: none; }
+
+  /* A: current game technique — 960px base + per-frame scale + will-change */
+  .gA { width: 960px; aspect-ratio: 960/930; will-change: transform, opacity;
+        container-type: inline-size; transform-origin: center bottom; }
+
+  /* B: small base (360px) + per-frame scale + will-change, art source is 1220px PNG */
+  .gB { width: 360px; aspect-ratio: 960/930; will-change: transform, opacity;
+        container-type: inline-size; transform-origin: center bottom; }
+
+  /* C: per-frame WIDTH sizing, translate-only transform */
+  .gC { aspect-ratio: 960/930; will-change: transform, opacity; container-type: inline-size; }
+
+  /* D: small base + per-frame scale, NO will-change */
+  .gD { width: 360px; aspect-ratio: 960/930; container-type: inline-size; transform-origin: center bottom; }
+</style>
+</head>
+<body>
+  <div class="grid">
+    <div class="cell"><span class="tag">A: 960px base + animated scale + will-change (current game)</span>
+      <div class="gate gA" id="a"><img src="assets/gates/gate-blue.webp" draggable="false"><span class="lbl">THE</span></div>
+    </div>
+    <div class="cell"><span class="tag">B: 360px base + animated scale + will-change (PNG source)</span>
+      <div class="gate gB" id="b"><img src="assets/gates/source/gate-blue.png" draggable="false"><span class="lbl">THE</span></div>
+    </div>
+    <div class="cell"><span class="tag">C: animated width, translate-only (no scale)</span>
+      <div class="gate gC" id="c"><img src="assets/gates/gate-blue.webp" draggable="false"><span class="lbl">THE</span></div>
+    </div>
+    <div class="cell"><span class="tag">D: 360px base + animated scale, no will-change</span>
+      <div class="gate gD" id="d"><img src="assets/gates/source/gate-blue.png" draggable="false"><span class="lbl">THE</span></div>
+    </div>
+  </div>
+  <script>
+    Promise.all([...document.images].map(i => i.decode().catch(() => {}))).then(() => {
+      const els = { a: document.getElementById('a'), b: document.getElementById('b'),
+                    c: document.getElementById('c'), d: document.getElementById('d') };
+      const t0 = performance.now();
+      const DUR = 6000; // approach duration like a question
+      function frame(now) {
+        const t = ((now - t0) % DUR) / DUR;         // 0..1 loop
+        const w = 240 + t * 120;                    // displayed width 240 -> 360 px
+        const s960 = w / 960, s360 = w / 360;
+        const y = 0, x = 0;
+        const opacity = 0.72 + t * 0.28;
+        // A: exactly like the game
+        els.a.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -100%) scale(${s960.toFixed(4)})`;
+        els.a.style.opacity = opacity.toFixed(3);
+        // B: same but small base
+        els.b.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -100%) scale(${s360.toFixed(4)})`;
+        els.b.style.opacity = opacity.toFixed(3);
+        // C: width-based, translate only (skip style write when unchanged)
+        const wpx = Math.round(w) + 'px';
+        if (els.c.style.width !== wpx) els.c.style.width = wpx;
+        els.c.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+        els.c.style.opacity = opacity.toFixed(3);
+        // D: small base, no will-change
+        els.d.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -100%) scale(${s360.toFixed(4)})`;
+        els.d.style.opacity = opacity.toFixed(3);
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    });
+  </script>
+</body>
+</html>
