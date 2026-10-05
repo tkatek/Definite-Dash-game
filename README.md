@@ -18,17 +18,16 @@ css/start.css               Landing screen: hero over the approved countryside a
                             + fox mascot, level-selection modal (start screen only)
 js/engine.js                ArticleRunnerEngine — the single canonical engine
 js/game.js                  UI controller: renders engine state, forwards input
-js/player-animation.js      Preserved eight-phase fox asset manifest/test helpers
 data/game-data.json         The single canonical data source (levels, questions,
                             rules, scoring and timing settings)
-tests/                       Engine + preserved fox-asset suites (186 tests)
-assets/characters/          Active rear-view flying fox, preserved 8-frame run
-                            cycle sources, and the start-screen fox mascot
-assets/gates/               Approved gate artwork (webp + png sources)
-assets/backgrounds/         Approved environment paintings (webp + png sources),
+tests/                       Engine test suite (178 tests)
+assets/characters/          Active rear-view flying fox + start-screen fox mascot
+assets/gates/               Approved gate artwork (gate-blue/green/purple.webp)
+assets/backgrounds/         Approved environment paintings per device layout,
                             plus hero-countryside for the start screen
 assets/road-details/        Active dirt, pebble, wood, and roadside detail art
-assets/environment|ui/      Active signs, helper owl, loader, and bonus coin art
+assets/environment|ui/      Active signs, roadside videos, helper owl, loader,
+                            and bonus coin art
 ```
 
 There is exactly one engine (`js/engine.js`) and one data file
@@ -81,20 +80,15 @@ and gameplay is unaffected.
 
 ### Character and environment assets
 
-`assets/characters/fox-flying-back.png` is the active 1254×1254 transparent
-gameplay pose. The earlier `fox-run-01.png` … `fox-run-08.png` masters and their
-normalized WebP builds remain as an approved source set rather than being
-loaded by the live game; their deterministic translation/encoding recipe is
-kept in `scripts/build-run-frames.py`. `assets/gates/` holds the approved gate
-artwork
-(`gate-blue/green/purple.webp`, PNG originals in `source/`).
-`assets/backgrounds/` holds the responsive environment paintings:
-`road-desktop.webp`, `road-tablet.webp`, and the cleaned portrait plate
-`road-mobile-clean-v2.webp` (with its PNG source). Decorative roadside signs
-live in `assets/environment/`, and the desktop helper owl lives in
-`assets/ui/`; their high-resolution PNG sources are kept beside them in
-`source/` folders. HUD symbols remain lightweight inline SVG so all live
-numbers and labels stay accessible HTML.
+`assets/characters/fox-flying-back-640.webp` is the active 1254×1254-class
+rear-view gameplay pose. `assets/gates/` holds the approved gate artwork
+(`gate-blue/green/purple.webp`). `assets/backgrounds/` holds the responsive
+environment paintings: `road-desktop.webp`, `road-tablet.webp`, and the cleaned
+portrait plate `road-mobile-clean-v2.webp`. Decorative roadside signs, the
+looping roadside videos (with per-device `-mobile` / `-400x900` variants and
+poster stills), the desktop helper owl, loader fox, and bonus coin live under
+`assets/environment/` and `assets/ui/`. HUD symbols remain lightweight inline
+SVG so all live numbers and labels stay accessible HTML.
 
 ### Gameplay fox flight system (finalized)
 
