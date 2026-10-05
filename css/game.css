@@ -725,13 +725,16 @@ img.road-detail {
   position: absolute;
   top: 0;
   left: 0;
+  /* Hidden first-paint fallback only — JS sizes every gate to its projected
+   * road width in integer pixels each frame. Sizing the element directly
+   * (instead of scaling a 960px layer) keeps the raster at display size, so
+   * the art never passes through a stale, resampled GPU raster. */
   width: 960px;
   aspect-ratio: 960 / 930;
   opacity: 0;
   cursor: pointer;
   touch-action: manipulation;
   transform: translate(-50%, -100%);
-  transform-origin: center bottom;
   will-change: transform, opacity;
   container-type: inline-size;
 }
@@ -809,16 +812,27 @@ body.debug .answer-gate .gate-key {
   font-size: 0.65rem;
 }
 
-.answer-gate.is-chosen .answer-gate__art {
-  filter: none;
+/* Feedback glow rides a static pseudo-element behind the art. Routing the art
+ * itself through a filter (drop-shadow/saturate) forces it back through an
+ * offscreen resampling pass and softens it. */
+.answer-gate::before {
+  content: "";
+  position: absolute;
+  inset: 2% 5% 0;
+  border-radius: 46% 46% 14px 14px / 42% 42% 14px 14px;
+  background: radial-gradient(closest-side, var(--gate-glow, transparent), transparent 78%);
+  opacity: 0;
+  pointer-events: none;
 }
 
-.answer-gate.is-correct .answer-gate__art {
-  filter: drop-shadow(0 0 1.35cqh rgba(65, 198, 91, 0.92));
+.answer-gate.is-correct::before {
+  --gate-glow: rgba(65, 198, 91, 0.66);
+  opacity: 1;
 }
 
-.answer-gate.is-wrong .answer-gate__art {
-  filter: drop-shadow(0 0 1.15cqh rgba(230, 91, 45, 0.82)) saturate(0.9);
+.answer-gate.is-wrong::before {
+  --gate-glow: rgba(230, 91, 45, 0.6);
+  opacity: 1;
 }
 
 .gates-art-failed .answer-gate__art,

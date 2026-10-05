@@ -208,7 +208,10 @@ const RULE_HINTS = {
 const RUNNER_GEO = {
   gateFillByCount: Object.freeze({ 2: 0.84, 3: 0.9 }),
   gateSafeInsetRatio: 0.0065,
-  gateBaseArtWidthPx: 960,
+  // Native gate art is 960×930 px — ≥2.6× the widest projected gate, so it is
+  // only ever downscaled. The element itself is sized to the projected width
+  // each frame (renderGates); the CSS width mirrors 960px only as a hidden
+  // first-paint fallback.
   gateArtAspectRatio: 960 / 930,
   gateMaxWidthPx: 360,
   gateMaxHeightRatioByLayout: Object.freeze({ desktop: 0.35, tablet: 0.34, mobile: 0.33 }),
@@ -3257,18 +3260,25 @@ function renderGates(frameGeometry = null) {
     (D - layout.gateStartDepth) /
       Math.max(0.001, gateCollisionDepth() - layout.gateStartDepth),
   );
-  const scale = sizeGeometry.gateWidth / RUNNER_GEO.gateBaseArtWidthPx;
   const opacity = (farOpacity + (1 - farOpacity) * gateJourney) * world.gate.spawnFade;
+
+  // Gates carry their real projected size in pixels. A transform that re-scales
+  // every frame keeps the element on one GPU layer whose raster goes stale, so
+  // the compositor resamples it and the art smears; an element whose width is
+  // set instead re-rasterizes at its exact display size and only translates
+  // afterwards. Integer pixels keep both the size and the ground point stable.
+  const gateWidthCss = `${Math.round(sizeGeometry.gateWidth)}px`;
 
   gateEls.forEach((el, lane) => {
     const active = lane < gateCount;
     el.hidden = !active;
     if (!active) return;
     // (x, y) is the gate's ground point: bottom-centered, standing on the road.
+    if (el.style.width !== gateWidthCss) el.style.width = gateWidthCss;
     el.style.transform =
-      `translate3d(${gateCenterX(positionGeometry, lane).toFixed(1)}px, ` +
-      `${(positionGeometry.point.y * world.H).toFixed(1)}px, 0) ` +
-      `translate(-50%, -100%) scale(${scale.toFixed(4)})`;
+      `translate3d(${Math.round(gateCenterX(positionGeometry, lane))}px, ` +
+      `${Math.round(positionGeometry.point.y * world.H)}px, 0) ` +
+      `translate(-50%, -100%)`;
     el.style.opacity = opacity.toFixed(3);
     // Contact shadow reads stronger as the gate gets close.
     el.style.setProperty('--gate-shadow-o', (0.22 + 0.4 * gateJourney).toFixed(3));
