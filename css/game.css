@@ -486,6 +486,13 @@ img.road-detail {
   -webkit-user-drag: none;
 }
 
+/* js/game.js deactivates surplus detail sprites with el.hidden; without this
+ * guard the display:block above would out-specify the UA's [hidden] rule and
+ * leak the deactivated rock/debris sprites at the layer's top-left corner. */
+img.road-detail[hidden] {
+  display: none;
+}
+
 .road-detail--flat,
 .road-detail--raised,
 .road-detail--roadside { filter: none; }
