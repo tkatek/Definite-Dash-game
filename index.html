@@ -261,28 +261,20 @@
              gates by depth; the layer itself never creates a stacking
              context and never takes pointer events. -->
         <div id="road-layer" class="road-layer" aria-hidden="true"></div>
-        <div id="road-guides" class="road-guides" aria-hidden="true">
-          <span class="road-guide" data-lane="0"><i></i><i></i></span>
-          <span class="road-guide" data-lane="1"><i></i><i></i></span>
-          <span class="road-guide" data-lane="2"><i></i><i></i></span>
-        </div>
         <div id="gates" class="gates" aria-hidden="true">
           <div class="answer-gate" data-lane="0">
             <span class="gate-key" aria-hidden="true">1</span>
             <img class="answer-gate__art" alt="" draggable="false" decoding="async">
-            <span class="answer-gate__icon" aria-hidden="true"></span>
             <span class="answer-gate__label"></span>
           </div>
           <div class="answer-gate" data-lane="1">
             <span class="gate-key" aria-hidden="true">2</span>
             <img class="answer-gate__art" alt="" draggable="false" decoding="async">
-            <span class="answer-gate__icon" aria-hidden="true"></span>
             <span class="answer-gate__label"></span>
           </div>
           <div class="answer-gate" data-lane="2">
             <span class="gate-key" aria-hidden="true">3</span>
             <img class="answer-gate__art" alt="" draggable="false" decoding="async">
-            <span class="answer-gate__icon" aria-hidden="true"></span>
             <span class="answer-gate__label"></span>
           </div>
         </div>
@@ -396,6 +388,44 @@
         <div class="sentence-wrap">
           <p id="sentence" class="sentence" aria-live="polite"></p>
           <p class="sentence-instruction">Choose the correct article.</p>
+        </div>
+      </div>
+
+      <!-- Reading-time hold: illustrated card carrying the question and a
+           circular countdown timer. The gates stay at the horizon while it
+           counts; every element below scales with the card (container q units). -->
+      <div id="question-countdown" class="question-countdown hidden" role="timer"
+           aria-label="Question reading time before the gates start">
+        <div class="qcard">
+          <!-- The approved card artwork (frame, wooden banner, cream interior,
+               corner plants) — one PNG, intrinsic 4:3. Only the dynamic text
+               and the countdown timer are HTML overlays on top of it. -->
+          <img class="qcard__art" src="assets/ui/question-card.png" alt=""
+               width="1448" height="1086" draggable="false" decoding="async"
+               aria-hidden="true">
+          <!-- Title overlaid on the artwork's wooden banner -->
+          <div class="qcard__banner">
+            <span class="qcard__title">Complete the sentence</span>
+          </div>
+
+          <p id="question-countdown-sentence" class="qcard__sentence"></p>
+
+          <div class="qcard__timer">
+            <svg class="qcard__rays" viewBox="0 0 46 26" aria-hidden="true" focusable="false">
+              <path d="M46 13H30l10-6-8 2 2-9-6 8L24 3l3 10-8-4 7 6-11 1 11 2-8 5 9-2-3 9 6-8 3 9 1-11 7 5Z" fill="#ffd23e" stroke="#e3a91f" stroke-width="1.2" stroke-linejoin="round"/>
+            </svg>
+            <div class="qcard__ringwrap">
+              <svg class="qcard__ring" viewBox="0 0 120 120" aria-hidden="true" focusable="false">
+                <circle class="qcard__ring-track" cx="60" cy="60" r="52"/>
+                <circle class="qcard__ring-progress" id="question-countdown-arc" cx="60" cy="60" r="52"/>
+              </svg>
+              <span id="question-countdown-value" class="qcard__value">6</span>
+            </div>
+            <svg class="qcard__rays qcard__rays--flip" viewBox="0 0 46 26" aria-hidden="true" focusable="false">
+              <path d="M46 13H30l10-6-8 2 2-9-6 8L24 3l3 10-8-4 7 6-11 1 11 2-8 5 9-2-3 9 6-8 3 9 1-11 7 5Z" fill="#ffd23e" stroke="#e3a91f" stroke-width="1.2" stroke-linejoin="round"/>
+            </svg>
+            <span class="qcard__timeleft">Time left</span>
+          </div>
         </div>
       </div>
 

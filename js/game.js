@@ -206,21 +206,21 @@ const RULE_HINTS = {
  * fox and road agree. Engine rules and collision thresholds never change.
  */
 const RUNNER_GEO = {
-  gateFillByCount: Object.freeze({ 2: 0.84, 3: 0.9 }),
-  gateSafeInsetRatio: 0.0065,
-  // Native gate art is 960×930 px — ≥2.6× the widest projected gate, so it is
-  // only ever downscaled. The element itself is sized to the projected width
-  // each frame (renderGates); the CSS width mirrors 960px only as a hidden
-  // first-paint fallback.
+  gateFillByCount: Object.freeze({ 2: 0.97, 3: 0.99 }),
+  gateSafeInsetRatio: 0.004,
+  // Native gate art is 960×930 px — at least twice the widest projected gate,
+  // so it is only ever downscaled. The element itself is sized to the projected
+  // width each frame (renderGates); the CSS width mirrors 960px only as a
+  // hidden first-paint fallback.
   gateArtAspectRatio: 960 / 930,
-  gateMaxWidthPx: 360,
-  gateMaxHeightRatioByLayout: Object.freeze({ desktop: 0.35, tablet: 0.34, mobile: 0.33 }),
+  gateMaxWidthPx: 480,
+  gateMaxHeightRatioByLayout: Object.freeze({ desktop: 0.46, tablet: 0.44, mobile: 0.42 }),
   gateCollisionLeadDepth: 0.01,
   gateSpawnFadePerSecond: 5,
+  // How long the fox's landing pose rides over the planted gate.
   gatePassThroughSeconds: 0.16,
   gateExitFadeStartSeconds: 0.1,
   gateExitFadeSeconds: 0.18,
-  gateMaxPassDepth: 0.22,
   farOpacity: 0.72,
 };
 
@@ -229,7 +229,7 @@ const PHONE_PORTRAIT_VISUALS = Object.freeze({
   maxWidthPx: 480,
   nearHalfWidth: 0.61,
   playerDepth: 0.73,
-  gateFillByCount: Object.freeze({ 2: 0.9, 3: 0.96 }),
+  gateFillByCount: Object.freeze({ 2: 0.99, 3: 1.0 }),
   playerGateWidthRatio: 0.66,
 });
 
@@ -456,6 +456,14 @@ const SPEED_PROGRESSION = Object.freeze({
   maxMultiplier: 1.4,
 });
 
+/** Reading hold: every question freezes the approaching gates for this long
+ * behind the center countdown card, so the sentence can be finished before
+ * the answer has to be made. Lane input stays open the whole time. */
+const QUESTION_COUNTDOWN_MS = 6000;
+
+/** Circumference of the card timer's progress ring (viewBox 120, r 52). */
+const COUNTDOWN_RING_LENGTH = 2 * Math.PI * 52;
+
 /** Native roadside media. The static device background remains authoritative
  * whenever video is unavailable or reduced motion is requested. */
 const ROADSIDE_VIDEO_SOURCES = Object.freeze({
@@ -605,7 +613,7 @@ const world = {
   dustIdx: 0,
   dustTimer: 0,
   playerLane: 1,
-  gate: { depth: 0, passDepth: 0, spawnFade: 0, approachDepthPerSecond: 0 },
+  gate: { depth: 0, spawnFade: 0 },
 };
 
 function clamp01(value) {
@@ -1304,7 +1312,7 @@ function gateCollisionDepth() {
 }
 
 function gateRenderDepth() {
-  return world.gate.depth + world.gate.passDepth;
+  return world.gate.depth;
 }
 
 /**
@@ -1407,6 +1415,10 @@ const dom = {
   playerFrame: document.querySelector('.player-frame'),
   playerImg: document.getElementById('player-img'),
   scorePop: document.getElementById('score-pop'),
+  questionCountdown: document.getElementById('question-countdown'),
+  questionCountdownValue: document.getElementById('question-countdown-value'),
+  questionCountdownSentence: document.getElementById('question-countdown-sentence'),
+  questionCountdownArc: document.getElementById('question-countdown-arc'),
   tipText: document.getElementById('tip-text'),
   hintText: document.getElementById('hint-text'),
   mobileHintText: document.getElementById('mobile-hint-text'),
@@ -1453,7 +1465,6 @@ const dom = {
 
 const gateEls = [...dom.gatesRoot.querySelectorAll('.answer-gate')];
 const answerChoiceEls = [...dom.answerDock.querySelectorAll('.answer-dock__choice')];
-const roadGuideEls = [...document.querySelectorAll('.road-guide')];
 const roadsideVideos = Object.freeze({
   left: dom.roadsideVideoLeft,
   right: dom.roadsideVideoRight,
@@ -1802,7 +1813,7 @@ function shouldRoadsideVideosPlay() {
     !document.hidden &&
     !prefersReducedMotion &&
     currentScreen === 'game' &&
-    (state === GAME_STATES.PLAYING ||
+    ((state === GAME_STATES.PLAYING && !questionCountdown.active) ||
       (state === GAME_STATES.FEEDBACK && world.motionRate > 0))
   );
 }
@@ -1958,6 +1969,7 @@ function bindEngineEvents() {
     applyQueuedSpeedIncrease();
     deferCoinSpawn(COIN_CONFIG.questionGraceMs);
     renderQuestion(payload);
+    beginQuestionCountdown();
   });
   engine.on('player:lane-changed', (payload) => {
     logEvent('player:lane-changed', payload);
@@ -2029,6 +2041,7 @@ function handleStateChanged({ to }) {
   switch (to) {
     case GAME_STATES.READY:
       resetFeedbackFlow();
+      endQuestionCountdown();
       showScreen('start');
       break;
     case GAME_STATES.PLAYING:
@@ -2051,6 +2064,7 @@ function handleStateChanged({ to }) {
       break;
     case GAME_STATES.LEVEL_COMPLETE:
       resetFeedbackFlow();
+      endQuestionCountdown();
       settlePlayerFlightPose();
       renderPause(false);
       renderLevelList();
@@ -2058,6 +2072,7 @@ function handleStateChanged({ to }) {
       break;
     case GAME_STATES.GAME_OVER:
       resetFeedbackFlow();
+      endQuestionCountdown();
       settlePlayerFlightPose();
       renderPause(false);
       renderLevelList();
@@ -2270,12 +2285,10 @@ function renderQuestion(payload) {
   setDecisionFocus(false);
 
   // Place each fresh gate group at the vanishing point, then advance it
-  // through the same projection used by the lane guides.
+  // through the shared road projection.
   const activeLayout = ROAD_LAYOUTS[world.layoutName];
   world.gate.depth = activeLayout.gateStartDepth;
-  world.gate.passDepth = 0;
   world.gate.spawnFade = 0;
-  world.gate.approachDepthPerSecond = 0;
   world.feedbackT = 0;
 
   // Sentence with a visible blank, built from text nodes only.
@@ -2313,9 +2326,9 @@ function renderQuestion(payload) {
 }
 
 /**
- * Lane rendering: artwork, label and icon follow the engine's randomized
- * laneMap — never a fixed order. Each gate element keeps one <img>/<span>
- * pair for its lifetime; only the data wired into them changes per question.
+ * Lane rendering: artwork and label follow the engine's randomized laneMap —
+ * never a fixed order. Each gate element keeps one <img>/<span> pair for its
+ * lifetime; only the data wired into them changes per question.
  */
 function renderLanes(laneMap) {
   laneMap.forEach((category, lane) => {
@@ -2326,15 +2339,11 @@ function renderLanes(laneMap) {
       gate.dataset.category = category;
       const art = gate.querySelector('.answer-gate__art');
       if (!art.src.endsWith(visuals.art)) art.src = visuals.art;
-      gate.querySelector('.answer-gate__icon').innerHTML = visuals.icon;
       gate.querySelector('.answer-gate__label').textContent = visuals.label;
       gate.setAttribute('aria-label', `${visuals.aria} (key ${lane + 1})`);
     }
-    const guide = roadGuideEls[lane];
-    if (guide) guide.dataset.category = category;
     gate.classList.remove('is-chosen', 'is-correct', 'is-wrong');
   });
-  renderLaneGuides();
 }
 
 /** The dock mirrors the same randomized laneMap rendered by the road gates. */
@@ -2372,7 +2381,6 @@ function renderPlayer(lane) {
   world.playerLane = lane;
   dom.runner.dataset.playerLane = String(lane);
   beginPlayerLaneTransition(lane);
-  roadGuideEls.forEach((guide, index) => guide.classList.toggle('is-active', index === lane));
 }
 
 const gateFrameGeometryCache = {
@@ -2390,33 +2398,6 @@ function getGateFrameGeometry() {
   writeGateLayoutAtDepth(gateFrameGeometryCache.position, gateRenderDepth(), gateCount);
   writeGateLayoutAtDepth(gateFrameGeometryCache.collision, gateCollisionDepth(), gateCount);
   return gateFrameGeometryCache;
-}
-
-function renderLaneGuides(frameGeometry = null) {
-  if (world.W < 40 || roadGuideEls.length === 0) return;
-  const frame = frameGeometry ?? getGateFrameGeometry();
-  if (!frame) return;
-  const gateCount = Math.min(frame.gateCount, roadGuideEls.length);
-  const geometry = frame.position;
-  const collisionGeometry = frame.collision;
-  const guideScale = Math.max(
-    0.42,
-    Math.min(0.86, (geometry.gateWidth / collisionGeometry.gateWidth) * 0.82),
-  );
-  const guideY = geometry.point.y * world.H + Math.max(
-    10,
-    Math.min(world.H * 0.055, geometry.gateWidth * 0.22),
-  );
-  roadGuideEls.forEach((guide, lane) => {
-    const active = lane < gateCount;
-    guide.hidden = !active;
-    if (!active) return;
-    const baseOpacity = guide.classList.contains('is-active') ? 0.96 : 0.78;
-    guide.style.opacity = (baseOpacity * world.gate.spawnFade).toFixed(3);
-    guide.style.transform =
-      `translate3d(${gateCenterX(geometry, lane).toFixed(1)}px, ${guideY.toFixed(1)}px, 0) ` +
-      `translate(-50%, -50%) scale(${guideScale.toFixed(3)})`;
-  });
 }
 
 function applyLaneLean(from, to) {
@@ -2704,7 +2685,6 @@ function rebuildWorldGeometry() {
     : null;
 
   renderWorldStatic();
-  renderLaneGuides();
 }
 
 /**
@@ -3200,41 +3180,20 @@ function updateCoins(travelDeltaMs, dt, effectiveRate, state) {
  * Gate visual state per engine state:
  *  - PLAYING: linear visual depth follows gateProgress and reaches the
  *    road-bounded collision plane at the exact frame the engine resolves.
- *  - FEEDBACK: size freezes at that plane while position keeps advancing on
- *    the shared world clock for one short physical pass, then fades.
+ *  - FEEDBACK: gates stay planted at that plane while the fox lands over
+ *    them, then fade out in place. They never slide toward or past the
+ *    camera, so the answer moment reads as a clean stop, not a jump.
  */
-function updateGateVisual(realDt, travelDt, state) {
+function updateGateVisual(realDt, state) {
   const g = world.gate;
   if (state === GAME_STATES.PLAYING) {
     const layout = ROAD_LAYOUTS[world.layoutName];
     const start = layout.gateStartDepth;
-    const nextDepth = lerp(
-      start,
-      gateCollisionDepth(),
-      gateVisualProgress,
-    );
-    if (travelDt > 0 && nextDepth >= g.depth) {
-      g.approachDepthPerSecond = (nextDepth - g.depth) / travelDt;
-    }
-    g.depth = nextDepth;
-    g.passDepth = 0;
+    g.depth = lerp(start, gateCollisionDepth(), gateVisualProgress);
     g.spawnFade = Math.min(1, g.spawnFade + realDt * RUNNER_GEO.gateSpawnFadePerSecond);
   } else if (state === GAME_STATES.FEEDBACK) {
-    const previousFeedbackT = world.feedbackT;
     world.feedbackT += realDt;
     g.depth = gateCollisionDepth();
-    const remainingPassSeconds = Math.max(
-      0,
-      RUNNER_GEO.gatePassThroughSeconds - previousFeedbackT,
-    );
-    const passFrameShare = realDt > 0
-      ? Math.min(1, remainingPassSeconds / realDt)
-      : 0;
-    g.passDepth = Math.min(
-      RUNNER_GEO.gateMaxPassDepth,
-      g.passDepth +
-        (g.approachDepthPerSecond || world.baseSpeed) * travelDt * passFrameShare,
-    );
     const fadeDuration = Math.max(
       0.001,
       RUNNER_GEO.gateExitFadeSeconds - RUNNER_GEO.gateExitFadeStartSeconds,
@@ -4309,6 +4268,7 @@ const playerFlight = {
  * ---------------------------------------------------------------------- */
 
 const IMAGE_PRELOAD_TIMEOUT_MS = 45000;
+const IMAGE_DECODE_TIMEOUT_MS = 2500;
 const LOADER_MIN_VISIBLE_MS = 350;
 const LOADER_FADE_MS = 360;
 
@@ -4324,6 +4284,26 @@ let bootPromise = null;
 let initializationPromise = null;
 let gameInitialized = false;
 const loaderShownAt = performance.now();
+
+/**
+ * decode() is only a scheduling hint: some embedded browsers leave it pending
+ * forever even for a fully loaded image, which would stall the loader. Bound
+ * it and let the caller's complete/naturalWidth check stay authoritative.
+ */
+function decodeImageBounded(image) {
+  if (typeof image.decode !== 'function') return Promise.resolve();
+  return new Promise((resolve) => {
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      resolve();
+    };
+    const timeoutId = setTimeout(settle, IMAGE_DECODE_TIMEOUT_MS);
+    image.decode().then(settle, settle);
+  });
+}
 
 function loadDecodedImage(src) {
   const cacheKey = new URL(src, document.baseURI).href;
@@ -4350,7 +4330,7 @@ function loadDecodedImage(src) {
     img.onload = async () => {
       let decodeError = null;
       try {
-        if (typeof img.decode === 'function') await img.decode();
+        await decodeImageBounded(img);
       } catch (error) {
         // Some browsers reject decode() for an otherwise complete cached image.
         decodeError = error;
@@ -4409,7 +4389,7 @@ async function decodeDocumentImage(image) {
 
   let decodeError = null;
   try {
-    if (typeof image.decode === 'function') await image.decode();
+    await decodeImageBounded(image);
   } catch (error) {
     decodeError = error;
   }
@@ -4764,6 +4744,11 @@ async function performBoot() {
     showLoaderError('Connection problem', "The game couldn't start. Check your connection and try again.");
     return false;
   }
+
+  // Team-lead flow: no landing/level pages — the first question begins
+  // behind the fading loader (its reading countdown covers the fade), so
+  // the player lands directly in gameplay.
+  startGame(pickDefaultLevel());
 
   dom.loader.dataset.state = 'ready';
   dom.loader.setAttribute('aria-busy', 'false');
@@ -5129,6 +5114,80 @@ function handleReducedMotionChange(event) {
  * 15. Animation loop (single driver; the engine owns timing & collision)
  * ====================================================================== */
 
+/**
+ * Reading-time hold for the active question. While `active` the loop neither
+ * advances the engine clock nor the world motion: the gates wait at the
+ * horizon and the roadside videos pause until the countdown completes. The
+ * card itself never intercepts pointer events, so lanes can be pre-picked.
+ */
+const questionCountdown = {
+  active: false,
+  remainingMs: 0,
+  shownSeconds: null,
+};
+
+function beginQuestionCountdown() {
+  questionCountdown.active = true;
+  questionCountdown.remainingMs = QUESTION_COUNTDOWN_MS;
+  questionCountdown.shownSeconds = null;
+  // The center card carries the question itself; the sentence strip at the
+  // top hides for the hold and returns once the gates are released.
+  if (dom.questionCountdownSentence && dom.sentence) {
+    dom.questionCountdownSentence.innerHTML = dom.sentence.innerHTML;
+  }
+  renderQuestionCountdownArc(1);
+  dom.screenGame?.classList.add('is-reading-hold');
+  renderQuestionCountdown();
+  dom.questionCountdown?.classList.remove('hidden');
+  syncRoadsideVideoPlayback();
+}
+
+function endQuestionCountdown() {
+  questionCountdown.active = false;
+  questionCountdown.remainingMs = 0;
+  questionCountdown.shownSeconds = null;
+  dom.screenGame?.classList.remove('is-reading-hold');
+  dom.questionCountdown?.classList.add('hidden');
+}
+
+/** Drive the illustrated ring from the same countdown clock as the number:
+ * one stroke whose visible length equals the remaining-time ratio. */
+function renderQuestionCountdownArc(remainingRatio) {
+  const arc = dom.questionCountdownArc;
+  if (!arc) return;
+  const clamped = Math.min(1, Math.max(0, remainingRatio));
+  arc.style.strokeDashoffset = (COUNTDOWN_RING_LENGTH * (1 - clamped)).toFixed(1);
+}
+
+function renderQuestionCountdown() {
+  const seconds = Math.max(0, Math.ceil(questionCountdown.remainingMs / 1000));
+  if (seconds !== questionCountdown.shownSeconds) {
+    questionCountdown.shownSeconds = seconds;
+    const valueEl = dom.questionCountdownValue;
+    if (valueEl) {
+      valueEl.textContent = String(seconds);
+      // Restart the per-second pulse (void offsetWidth forces the reflow that
+      // resets the animation on the same class).
+      valueEl.classList.remove('is-tick');
+      void valueEl.offsetWidth;
+      valueEl.classList.add('is-tick');
+    }
+  }
+  renderQuestionCountdownArc(questionCountdown.remainingMs / QUESTION_COUNTDOWN_MS);
+}
+
+/** Advance the hold by one real-time frame; returns true once it completes. */
+function updateQuestionCountdown(deltaMs) {
+  questionCountdown.remainingMs -= deltaMs;
+  if (questionCountdown.remainingMs > 0) {
+    renderQuestionCountdown();
+    return false;
+  }
+  endQuestionCountdown();
+  syncRoadsideVideoPlayback();
+  return true;
+}
+
 function startLoop() {
   if (rafId !== null) return;
   dom.screenGame.classList.remove('is-world-idle');
@@ -5161,16 +5220,23 @@ function loop(now) {
     const gameplayRate = currentGameplayRate();
     const playingDeltaMs = visualDeltaMs * gameplayRate;
     const stateBeforeUpdate = engine.state;
+    // Reading hold: keep the engine clock and the world frozen while the
+    // countdown card is up; the frame only advances the countdown itself.
+    const countdownHolding = questionCountdown.active && engine.state === GAME_STATES.PLAYING;
     if (engine.state === GAME_STATES.PLAYING) {
-      advanceEngineByScaledTime(playingDeltaMs);
-      // update() can auto-resolve the question (PLAYING → FEEDBACK) and the
-      // engine resets its progress — re-check before adopting the value, or
-      // the gates would flash back to the horizon on timed resolutions.
-      if (engine.state === GAME_STATES.PLAYING) {
-        gateVisualProgress = engine.gateProgress;
-      } else if (engine.state === GAME_STATES.FEEDBACK) {
-        gateVisualProgress = 1;
-        world.gate.depth = gateCollisionDepth();
+      if (countdownHolding) {
+        updateQuestionCountdown(visualDeltaMs);
+      } else {
+        advanceEngineByScaledTime(playingDeltaMs);
+        // update() can auto-resolve the question (PLAYING → FEEDBACK) and the
+        // engine resets its progress — re-check before adopting the value, or
+        // the gates would flash back to the horizon on timed resolutions.
+        if (engine.state === GAME_STATES.PLAYING) {
+          gateVisualProgress = engine.gateProgress;
+        } else if (engine.state === GAME_STATES.FEEDBACK) {
+          gateVisualProgress = 1;
+          world.gate.depth = gateCollisionDepth();
+        }
       }
     }
     const state = engine.state;
@@ -5197,17 +5263,19 @@ function loop(now) {
       // The resolve frame draws the gate at the collision plane. Begin the
       // physical pass clock on the following frame so a 30fps/slow frame
       // cannot silently consume most of the readable 160ms pass-through.
-      const gateRealDt = enteredFeedbackThisFrame ? 0 : realDt;
-      const gateTravelDt = gateRealDt * gameplayRate;
+      // The reading hold freezes the pass the same way.
+      const gateRealDt = countdownHolding || enteredFeedbackThisFrame ? 0 : realDt;
       const feedbackTimeBeforeFrame = world.feedbackT;
 
       // Gate exit first: it owns the feedback clock (feedbackT).
-      updateGateVisual(gateRealDt, gateTravelDt, state);
+      updateGateVisual(gateRealDt, state);
 
       // One authoritative rate drives scenery, markers, details, dust and
       // coins. No gate-distance term can alter it during PLAYING.
       const feedbackRate = updateRoadMotionRate(state, feedbackTimeBeforeFrame);
-      const effectiveWorldRate = gameplayRate * feedbackRate;
+      const effectiveWorldRate = countdownHolding
+        ? 0
+        : gameplayRate * feedbackRate;
       // Native video changes only on the pass/crawl boundary. It receives no
       // per-frame playbackRate or currentTime writes.
       if (
@@ -5231,7 +5299,6 @@ function loop(now) {
       }
       const gateFrameGeometry = getGateFrameGeometry();
       renderGates(gateFrameGeometry);
-      renderLaneGuides(gateFrameGeometry);
       updateDebugBar(now);
 
       if (

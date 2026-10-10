@@ -677,47 +677,6 @@ img.road-detail[hidden] {
   animation-play-state: paused;
 }
 
-.road-guides {
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  pointer-events: none;
-}
-
-.road-guide {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: clamp(84px, 7.5cqw, 132px);
-  height: clamp(62px, 7cqh, 96px);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  color: #58b9f2;
-  opacity: 0.78;
-  filter: none;
-  transform-origin: center;
-}
-
-.road-guide[data-category="definite"] { color: #39a9f0; }
-.road-guide[data-category="indefinite"] { color: #55c95b; }
-.road-guide[data-category="none"] { color: #b24ee7; }
-
-.road-guide.is-active {
-  opacity: 0.96;
-  filter: none;
-}
-
-.road-guide i {
-  display: block;
-  width: 100%;
-  height: 45%;
-  background: currentColor;
-  clip-path: polygon(50% 0, 100% 53%, 78% 72%, 50% 42%, 22% 72%, 0 53%);
-}
-
 /* ==========================================================================
  * Answer gates
  * ========================================================================== */
@@ -765,7 +724,7 @@ img.road-detail[hidden] {
   transform: translate(-50%, -50%);
   transform-origin: center;
   color: #fff;
-  font: 900 12cqw/1 var(--font-game);
+  font: 900 14.5cqw/1 var(--font-game);
   letter-spacing: 0.01em;
   white-space: nowrap;
   text-shadow: 0 0.07em 0 #15326b, 0 0.12em 0.16em rgba(11, 28, 60, 0.42);
@@ -773,22 +732,8 @@ img.road-detail[hidden] {
 }
 
 .answer-gate[data-category="none"] .answer-gate__label {
-  font-size: 10.2cqw;
+  font-size: 12cqw;
 }
-
-.answer-gate__icon {
-  position: absolute;
-  top: 13.5%;
-  left: 50%;
-  width: 17cqw;
-  aspect-ratio: 1;
-  transform: translate(-50%, -50%);
-  color: #fff;
-  filter: none;
-  pointer-events: none;
-}
-
-.answer-gate__icon svg { display: block; width: 100%; height: 100%; }
 
 .answer-gate::after {
   content: "";
@@ -842,8 +787,7 @@ body.debug .answer-gate .gate-key {
   opacity: 1;
 }
 
-.gates-art-failed .answer-gate__art,
-.gates-art-failed .answer-gate__icon { display: none; }
+.gates-art-failed .answer-gate__art { display: none; }
 
 .gates-art-failed .answer-gate {
   border: 4px solid rgba(35, 45, 74, 0.8);
@@ -1507,7 +1451,194 @@ body.debug .answer-gate .gate-key {
 .screen-game.is-feedback .tip-card,
 .screen-game.is-feedback .owl-help { opacity: 0; transform: translateY(10px); pointer-events: none; }
 
-/* ========================================================================== 
+/* ==========================================================================
+ * Question reading countdown: the approved illustrated card PNG (frame,
+ * wooden banner, cream interior, corner plants) with only the dynamic
+ * pieces — title, question and the countdown timer — as HTML overlays.
+ * It holds the gates while the sentence is read and never blocks lane
+ * input (pointer-events: none). All overlay sizing uses container units
+ * (cqw) of .qcard so the whole card scales as one piece.
+ * ========================================================================== */
+
+.question-countdown {
+  position: absolute;
+  inset: 0;
+  z-index: 105;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+/* The card keeps the artwork's intrinsic 1448×1086 (4:3) ratio: roughly 35%
+ * of the viewport wide (≈600×450 on a 1734×862 desktop), capped by the free
+ * vertical space between the HUD and the answer dock; portrait is
+ * width-bound. */
+.qcard {
+  position: relative;
+  container-type: inline-size;
+  box-sizing: border-box;
+  width: min(35vw, 74vh, 680px);
+  aspect-ratio: 1448 / 1086;
+  filter: drop-shadow(0 2.2cqw 4.5cqw rgba(10, 40, 80, 0.38));
+  animation: qcard-in 240ms cubic-bezier(0.2, 0.78, 0.28, 1) both;
+}
+
+@media (orientation: portrait) {
+  .qcard { width: min(92vw, 74vh, 680px); }
+}
+
+/* The supplied artwork fills the card exactly (same aspect ratio). */
+.qcard__art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.qcard__banner,
+.qcard__sentence,
+.qcard__timer { z-index: 1; }
+
+/* The card is centered by the grid parent, so the entrance may only add a
+ * gentle offset — never the translate(-50%,-50%) used by .feedback. */
+@keyframes qcard-in {
+  from { opacity: 0; transform: translateY(2.2cqw) scale(0.955); }
+  to { opacity: 1; transform: none; }
+}
+
+/* --- Title overlaid on the artwork's wooden banner --- */
+.qcard__banner {
+  position: absolute;
+  top: 4%;
+  left: 22%;
+  right: 22%;
+  height: 11.5%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.qcard__title {
+  font: 800 3.9cqw/1.08 var(--font-game);
+  color: #fff;
+  letter-spacing: 0.015em;
+  text-align: center;
+  white-space: nowrap;
+  text-shadow: 0 0.3cqw 0 #5b2d0e, 0 0.6cqw 1.1cqw rgba(40, 18, 2, 0.5);
+}
+
+/* --- Question sentence (middle band, inside the artwork's cream area) --- */
+.qcard__sentence {
+  position: absolute;
+  top: 18%;
+  left: 11%;
+  right: 11%;
+  margin: 0;
+  font: 700 4.4cqw/1.5 var(--font-game);
+  color: #17335c;
+  text-align: center;
+  text-wrap: balance;
+}
+
+/* --- Circular countdown timer (bottom band, above the artwork's plants) --- */
+.qcard__timer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 47%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.qcard__ringwrap {
+  position: relative;
+  width: 27cqw;
+  aspect-ratio: 1;
+}
+
+.qcard__ring {
+  width: 100%;
+  height: 100%;
+  display: block;
+  filter: drop-shadow(0 1cqw 1.6cqw rgba(15, 60, 25, 0.28));
+}
+
+.qcard__ring-track {
+  fill: #fdf6e2;
+  stroke: #e7dcb8;
+  stroke-width: 12.5;
+}
+
+.qcard__ring-progress {
+  fill: none;
+  stroke: #43b34e;
+  stroke-width: 12.5;
+  stroke-linecap: round;
+  stroke-dasharray: 326.7;
+  stroke-dashoffset: 0;
+  transform: rotate(-90deg);
+  transform-origin: 60px 60px;
+  transition: stroke-dashoffset 120ms linear;
+}
+
+.qcard__value {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font: 900 9.5cqw/1 var(--font-game);
+  color: #023d7a;
+  text-shadow: 0 0.3cqw 0 rgba(255, 255, 255, 0.85);
+}
+
+.qcard__value.is-tick {
+  animation: countdown-tick 320ms cubic-bezier(0.2, 0.78, 0.28, 1);
+}
+
+@keyframes countdown-tick {
+  from { transform: scale(1.26); }
+  to { transform: scale(1); }
+}
+
+.qcard__rays {
+  position: absolute;
+  width: 9cqw;
+  top: 50%;
+  transform: translateY(-70%);
+}
+
+.qcard__rays:not(.qcard__rays--flip) { left: 17%; }
+.qcard__rays--flip { right: 17%; transform: translateY(-70%) scaleX(-1); }
+
+.qcard__timeleft {
+  margin-top: 1.6cqw;
+  padding: 0.8cqw 4cqw;
+  border: 0.6cqw solid #8ecbe8;
+  border-radius: 99cqw;
+  background: #c3e8f9;
+  font: 800 3.4cqw/1.15 var(--font-game);
+  color: #0b5d8a;
+  letter-spacing: 0.03em;
+  box-shadow: 0 0.6cqw 1.3cqw rgba(20, 80, 130, 0.22);
+}
+
+/* While the reading card owns the question, the duplicate sentence strip at
+ * the top stays invisible (layout kept, so nothing else shifts). */
+.screen-game.is-reading-hold .sentence-wrap { visibility: hidden; }
+
+@media (prefers-reduced-motion: reduce) {
+  .qcard { animation: none; }
+  .qcard__value.is-tick { animation: none; }
+  .qcard__ring-progress { transition: none; }
+}
+
+/* ==========================================================================
  * Feedback, overlays and result screens
  * ========================================================================== */
 
@@ -1761,7 +1892,7 @@ body.debug .answer-gate .gate-key {
 @media (min-width: 681px) and (max-width: 1100px) {
   .answer-gate[data-category="none"] .answer-gate__label {
     width: 70cqw;
-    font-size: 12cqw;
+    font-size: 14cqw;
     line-height: 0.82;
     white-space: normal;
     text-align: center;
@@ -1966,9 +2097,9 @@ body.debug .answer-gate .gate-key {
     letter-spacing: 0.045em;
   }
 
-  .answer-gate__label { font-size: 12.5cqw; }
+  .answer-gate__label { font-size: 15cqw; }
   .answer-gate[data-category="none"] .answer-gate__label {
-    font-size: 9.75cqw;
+    font-size: 11.75cqw;
     letter-spacing: -0.01em;
   }
 
@@ -1976,8 +2107,6 @@ body.debug .answer-gate .gate-key {
     width: min(clamp(142px, 37vw, 176px), 31cqh);
     --player-flight-lift: -6px;
   }
-
-  .road-guide { width: 76px; height: 56px; }
 
   .world-sign,
   .tip-card,
@@ -2300,27 +2429,15 @@ body.debug .answer-gate .gate-key {
   }
 
   .answer-gate__art { filter: none; }
-  .answer-gate__label { font-size: 15cqw; }
+  .answer-gate__label { font-size: 16cqw; }
   .answer-gate[data-category="none"] .answer-gate__label {
     top: 36%;
     width: 70cqw;
-    font-size: 15cqw;
+    font-size: 14.5cqw;
     line-height: 0.8;
     white-space: normal;
     text-align: center;
   }
-
-  .road-guide {
-    width: clamp(82px, 22vw, 94px);
-    height: clamp(58px, 7.5dvh, 68px);
-    gap: 1px;
-    opacity: 0.9;
-    filter: none;
-  }
-
-  .road-guide[data-category="none"] { color: #a83cf4; }
-  .road-guide[data-category="indefinite"] { color: #2ed65b; }
-  .road-guide[data-category="definite"] { color: #2b9ff4; }
 
   /* The approved rear-facing flight sprite sits clear of the fixed dock. */
   .player {
@@ -2680,17 +2797,6 @@ body.debug .answer-gate .gate-key {
     display: block;
     font-size: clamp(0.95rem, 1.2vw, 1.2rem);
   }
-
-  .screen-game[data-road-layout="desktop"] .road-guide {
-    width: clamp(96px, 9cqw, 150px);
-    height: clamp(68px, 8cqh, 104px);
-    opacity: 0.9;
-    filter: none;
-  }
-
-  .screen-game[data-road-layout="desktop"] .road-guide[data-category="definite"] { color: #159df2; }
-  .screen-game[data-road-layout="desktop"] .road-guide[data-category="indefinite"] { color: #31d35b; }
-  .screen-game[data-road-layout="desktop"] .road-guide[data-category="none"] { color: #a83cf4; }
 
   .screen-game[data-road-layout="desktop"] .player {
     width: min(clamp(207px, 15.7vw, 301px), 34cqh);
